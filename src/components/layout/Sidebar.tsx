@@ -8,7 +8,6 @@ import {
   Users,
   FileText,
   Menu,
-  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -34,17 +33,14 @@ export function Sidebar() {
   return (
     <div
       className={cn(
-        "flex h-screen flex-col border-r bg-card transition-all duration-300",
-        collapsed ? "w-16" : "w-64"
+        "flex h-screen flex-col border-r bg-card",
+        collapsed ? "w-16" : "w-56"
       )}
     >
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b">
+      <div className="flex items-center justify-between p-3 border-b">
         {!collapsed && (
-          <div className="flex items-center space-x-2">
-            <Truck className="h-8 w-8 text-primary" />
-            <h1 className="text-xl font-bold text-foreground">MunckGest</h1>
-          </div>
+          <h1 className="text-lg font-bold">MunckGest</h1>
         )}
         <Button
           variant="ghost"
@@ -52,35 +48,28 @@ export function Sidebar() {
           onClick={() => setCollapsed(!collapsed)}
           className="h-8 w-8 p-0"
         >
-          {collapsed ? <Menu className="h-4 w-4" /> : <X className="h-4 w-4" />}
+          <Menu className="h-4 w-4" />
         </Button>
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 space-y-1 p-2">
+      <nav className="flex-1 p-2">
         {menuItems.map((item) => (
           <NavLink
             key={item.title}
             to={item.url}
             className={cn(
-              "flex items-center space-x-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+              "flex items-center space-x-2 rounded px-2 py-2 text-sm mb-1",
               isActive(item.url)
                 ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                : "hover:bg-accent"
             )}
           >
-            <item.icon className="h-5 w-5 flex-shrink-0" />
+            <item.icon className="h-4 w-4" />
             {!collapsed && <span>{item.title}</span>}
           </NavLink>
         ))}
       </nav>
-
-      {/* Footer */}
-      <div className="p-4 border-t">
-        <div className={cn("text-xs text-muted-foreground", collapsed && "text-center")}>
-          {collapsed ? "v1.0" : "Sistema de Gestão v1.0"}
-        </div>
-      </div>
     </div>
   );
 }
