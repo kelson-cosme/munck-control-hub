@@ -261,7 +261,7 @@ const VeiculoDetalhes = () => {
         </CardHeader>
       </Card>
       
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1  gap-6">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>Serviços Realizados</CardTitle>
