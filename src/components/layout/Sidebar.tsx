@@ -3,8 +3,6 @@ import { NavLink, useLocation } from "react-router-dom";
 import {
   LayoutDashboard,
   Truck,
-  ClipboardList,
-  Wrench,
   Users,
   FileText,
   Menu,
@@ -12,11 +10,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
+// Itens de menu atualizados (removidos "Serviços" e "Despesas")
 const menuItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Veículos", url: "/veiculos", icon: Truck },
-  { title: "Serviços", url: "/servicos", icon: ClipboardList },
-  { title: "Despesas", url: "/despesas", icon: Wrench },
   { title: "Motoristas", url: "/motoristas", icon: Users },
   { title: "Relatórios", url: "/relatorios", icon: FileText },
 ];

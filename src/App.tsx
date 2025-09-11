@@ -6,9 +6,8 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
 import Index from "./pages/Index";
 import Veiculos from "./pages/Veiculos";
-import VeiculoDetalhes from "./pages/VeiculoDetalhes"; // Importe o novo componente
-import Servicos from "./pages/Servicos";
-import Despesas from "./pages/Despesas";
+import VeiculoDetalhes from "./pages/VeiculoDetalhes";
+// Servicos e Despesas foram removidos das importações
 import Motoristas from "./pages/Motoristas";
 import Relatorios from "./pages/Relatorios";
 import NotFound from "./pages/NotFound";
@@ -25,12 +24,10 @@ const App = () => (
           <Routes>
             <Route path="/" element={<Index />} />
             <Route path="/veiculos" element={<Veiculos />} />
-            <Route path="/veiculos/:placa" element={<VeiculoDetalhes />} /> {/* Nova rota */}
-            <Route path="/servicos" element={<Servicos />} />
-            <Route path="/despesas" element={<Despesas />} />
+            <Route path="/veiculos/:placa" element={<VeiculoDetalhes />} />
+            {/* As rotas para /servicos e /despesas foram removidas */}
             <Route path="/motoristas" element={<Motoristas />} />
             <Route path="/relatorios" element={<Relatorios />} />
-            {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>
         </AppLayout>
