@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
 import Index from "./pages/Index";
 import Veiculos from "./pages/Veiculos";
+import VeiculoDetalhes from "./pages/VeiculoDetalhes"; // Importe o novo componente
 import Servicos from "./pages/Servicos";
 import Despesas from "./pages/Despesas";
 import Motoristas from "./pages/Motoristas";
@@ -24,6 +25,7 @@ const App = () => (
           <Routes>
             <Route path="/" element={<Index />} />
             <Route path="/veiculos" element={<Veiculos />} />
+            <Route path="/veiculos/:placa" element={<VeiculoDetalhes />} /> {/* Nova rota */}
             <Route path="/servicos" element={<Servicos />} />
             <Route path="/despesas" element={<Despesas />} />
             <Route path="/motoristas" element={<Motoristas />} />

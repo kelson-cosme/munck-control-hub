@@ -11,6 +11,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { NavLink } from "react-router-dom"; // Importe o NavLink
 
 const veiculos = [
   { placa: "MRC-1234", modelo: "Mercedes-Benz Atego 1719", ano: 2020, status: "Ativo" },
@@ -66,7 +67,12 @@ const Veiculos = () => {
             <TableBody>
               {filteredVeiculos.map((veiculo, index) => (
                 <TableRow key={index}>
-                  <TableCell className="font-medium">{veiculo.placa}</TableCell>
+                  <TableCell className="font-medium">
+                    {/* Link para a página de detalhes */}
+                    <NavLink to={`/veiculos/${veiculo.placa}`} className="text-primary hover:underline">
+                      {veiculo.placa}
+                    </NavLink>
+                  </TableCell>
                   <TableCell>{veiculo.modelo}</TableCell>
                   <TableCell>{veiculo.ano}</TableCell>
                   <TableCell>{veiculo.status}</TableCell>
