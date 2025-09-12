@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from "react"; // 1. Importar useRef
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useParams, NavLink } from "react-router-dom";
-import { ChevronLeft, Plus, Search, Calendar as CalendarIcon, Trash2 } from "lucide-react";
+import { ChevronLeft, Plus, Search, Calendar as CalendarIcon, Trash2, ArrowUpDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,29 +34,15 @@ import { supabase } from "@/lib/supabaseClient";
 // --- TIPAGEM E DADOS ---
 
 type Servico = {
-  id: number;
-  data: string | null;
-  os: string;
-  cliente: string;
-  operador: string;
-  n_fiscal: string;
-  boleto: string;
-  vencimento: string | null;
-  valor_bruto: number;
-  data_pagamento: string | null;
-  status: 'Pendente' | 'Pago' | 'Vencido' | 'Cancelado';
-  placa_veiculo: string;
+  id: number; data: string | null; os: string; cliente: string; operador: string; n_fiscal: string; boleto: string; vencimento: string | null; valor_bruto: number; data_pagamento: string | null; status: 'Pendente' | 'Pago' | 'Vencido' | 'Cancelado'; placa_veiculo: string;
 };
 
 type Despesa = {
-    id: number;
-    data: string | null;
-    fornecedor: string;
-    descricao: string;
-    vencimento: string | null;
-    valor_total: number;
-    placa_veiculo: string;
+    id: number; data: string | null; fornecedor: string; descricao: string; vencimento: string | null; valor_total: number; placa_veiculo: string;
 };
+
+type SortDirection = 'asc' | 'desc';
+type SortKey = keyof Servico | keyof Despesa;
 
 const statusOptions: Servico['status'][] = ['Pendente', 'Pago', 'Vencido', 'Cancelado'];
 
@@ -73,28 +59,14 @@ type EditableCellProps = {
 };
 const EditableCell = ({ value: initialValue, onSave, isEditing, onToggleEditing, type = 'text', options = [] }: EditableCellProps) => {
     const [value, setValue] = useState(initialValue);
-    useEffect(() => {
-        setValue(initialValue);
-    }, [initialValue]);
+    useEffect(() => { setValue(initialValue); }, [initialValue]);
     const handleSave = () => { onSave(value); onToggleEditing(false); };
     const handleCancel = () => { setValue(initialValue); onToggleEditing(false); };
     const handleKeyDown = (e: React.KeyboardEvent) => { if (e.key === 'Enter') handleSave(); if (e.key === 'Escape') handleCancel(); };
     if (isEditing) {
         const currentDate = parseDateStringAsLocal(value);
         switch (type) {
-            case 'date': 
-                return ( 
-                    <Popover open onOpenChange={(isOpen) => !isOpen && handleSave()}> 
-                        <PopoverTrigger asChild> 
-                            <Button variant="outline" className="h-8 w-full justify-start font-normal text-xs md:text-sm">
-                                <span>{currentDate ? format(currentDate, "dd/MM/yyyy") : "Selecione..."}</span>
-                            </Button> 
-                        </PopoverTrigger> 
-                        <PopoverContent className="w-auto p-0"> 
-                            <Calendar mode="single" selected={currentDate || undefined} onSelect={(date) => date && setValue(date)} initialFocus /> 
-                        </PopoverContent> 
-                    </Popover> 
-                );
+            case 'date': return ( <Popover open onOpenChange={(isOpen) => !isOpen && handleSave()}> <PopoverTrigger asChild> <Button variant="outline" className="h-8 w-full justify-start font-normal text-xs md:text-sm"> <span>{currentDate ? format(currentDate, "dd/MM/yyyy") : "Selecione..."}</span> </Button> </PopoverTrigger> <PopoverContent className="w-auto p-0"> <Calendar mode="single" selected={currentDate || undefined} onSelect={(date) => date && setValue(date)} initialFocus /> </PopoverContent> </Popover> );
             case 'select': return ( <Select value={value as string} onValueChange={(newValue) => onSave(newValue)}> <SelectTrigger className="h-8 text-xs md:text-sm"> <SelectValue placeholder="Selecione..." /> </SelectTrigger> <SelectContent> {options.map(option => <SelectItem key={option} value={option}>{option}</SelectItem>)} </SelectContent> </Select> );
             case 'number': return ( <Input type="number" value={value as number} onChange={(e) => setValue(parseFloat(e.target.value) || 0)} onBlur={handleSave} onKeyDown={handleKeyDown} autoFocus className="h-8 text-xs md:text-sm"/> );
             default: return ( <Input value={value as string} onChange={(e) => setValue(e.target.value)} onBlur={handleSave} onKeyDown={handleKeyDown} autoFocus className="h-8 text-xs md:text-sm"/> );
@@ -105,6 +77,7 @@ const EditableCell = ({ value: initialValue, onSave, isEditing, onToggleEditing,
     else if (typeof value === 'number') { displayValue = value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }); }
     return ( <div onClick={() => onToggleEditing(true)} className="cursor-pointer min-h-[2rem] flex items-center p-2 -m-2"> {displayValue || '-'} </div> );
 };
+
 
 // --- COMPONENTE PRINCIPAL ---
 const VeiculoDetalhes = () => {
@@ -118,8 +91,11 @@ const VeiculoDetalhes = () => {
   const [error, setError] = useState<string | null>(null);
   const [editingCell, setEditingCell] = useState<{ table: 'servicos' | 'despesas'; rowIndex: number; columnId: string } | null>(null);
   const [date, setDate] = useState<DateRange | undefined>(undefined);
+  const [highlightedRow, setHighlightedRow] = useState<{ table: string; index: number } | null>(null);
+  
+  const [servicosSortConfig, setServicosSortConfig] = useState<{ key: SortKey; direction: SortDirection } | null>({ key: 'data', direction: 'desc' });
+  const [despesasSortConfig, setDespesasSortConfig] = useState<{ key: SortKey; direction: SortDirection } | null>({ key: 'data', direction: 'desc' });
 
-  // 2. Criar as referências para os contentores das tabelas
   const servicosContentRef = useRef<HTMLDivElement>(null);
   const despesasContentRef = useRef<HTMLDivElement>(null);
 
@@ -129,8 +105,8 @@ const VeiculoDetalhes = () => {
       setLoading(true);
       setError(null);
       const [servicosResponse, despesasResponse] = await Promise.all([
-        supabase.from('servicos').select('*').eq('placa_veiculo', placa).order('data', { ascending: false }),
-        supabase.from('despesas').select('*').eq('placa_veiculo', placa).order('data', { ascending: false })
+        supabase.from('servicos').select('*').eq('placa_veiculo', placa),
+        supabase.from('despesas').select('*').eq('placa_veiculo', placa)
       ]);
       if (servicosResponse.error || despesasResponse.error) {
         console.error('Erro ao buscar detalhes:', servicosResponse.error || despesasResponse.error);
@@ -144,62 +120,99 @@ const VeiculoDetalhes = () => {
     fetchDetails();
   }, [placa]);
 
-  const filterByDateAndTerm = (items: (Partial<Servico> | Partial<Despesa>)[]) => {
-      return items.filter(item => {
-          const searchTermMatch = 'cliente' in item ?
-            ((item.os || '').toLowerCase().includes(searchTerm.toLowerCase()) || (item.cliente || '').toLowerCase().includes(searchTerm.toLowerCase())) :
-            ((item.fornecedor || '').toLowerCase().includes(searchTerm.toLowerCase()) || (item.descricao || '').toLowerCase().includes(searchTerm.toLowerCase()));
-          
-          const itemDate = parseDateStringAsLocal(item.data || null);
-          if (!itemDate) return true;
-          
-          const dateMatch = date?.from && date?.to ? isWithinInterval(itemDate, { start: date.from, end: date.to }) : true;
-          return searchTermMatch && dateMatch;
+  const sortedAndFilteredServicos = useMemo(() => {
+    let sortableItems = [...servicos];
+    if (servicosSortConfig !== null) {
+      sortableItems.sort((a, b) => {
+        const aValue = a[servicosSortConfig.key as keyof Servico];
+        const bValue = b[servicosSortConfig.key as keyof Servico];
+        if (aValue === null || aValue === undefined) return 1;
+        if (bValue === null || bValue === undefined) return -1;
+        if (aValue < bValue) return servicosSortConfig.direction === 'asc' ? -1 : 1;
+        if (aValue > bValue) return servicosSortConfig.direction === 'asc' ? 1 : -1;
+        return 0;
       });
-  }
-  const filteredServicos = filterByDateAndTerm(servicos);
-  const filteredDespesas = filterByDateAndTerm(despesas);
+    }
+    return sortableItems.filter(item => {
+      const searchTermMatch = ((item.os || '').toLowerCase().includes(searchTerm.toLowerCase()) || (item.cliente || '').toLowerCase().includes(searchTerm.toLowerCase()));
+      const itemDate = parseDateStringAsLocal(item.data || null);
+      if (!itemDate) return searchTermMatch;
+      const dateMatch = date?.from && date?.to ? isWithinInterval(itemDate, { start: date.from, end: date.to }) : true;
+      return searchTermMatch && dateMatch;
+    });
+  }, [servicos, servicosSortConfig, searchTerm, date]);
+
+  const sortedAndFilteredDespesas = useMemo(() => {
+    let sortableItems = [...despesas];
+    if (despesasSortConfig !== null) {
+        sortableItems.sort((a, b) => {
+            const aValue = a[despesasSortConfig.key as keyof Despesa];
+            const bValue = b[despesasSortConfig.key as keyof Despesa];
+            if (aValue === null || aValue === undefined) return 1;
+            if (bValue === null || bValue === undefined) return -1;
+            if (aValue < bValue) return despesasSortConfig.direction === 'asc' ? -1 : 1;
+            if (aValue > bValue) return despesasSortConfig.direction === 'asc' ? 1 : -1;
+            return 0;
+        });
+    }
+    return sortableItems.filter(item => {
+        const searchTermMatch = ((item.fornecedor || '').toLowerCase().includes(searchTerm.toLowerCase()) || (item.descricao || '').toLowerCase().includes(searchTerm.toLowerCase()));
+        const itemDate = parseDateStringAsLocal(item.data || null);
+        if (!itemDate) return searchTermMatch;
+        const dateMatch = date?.from && date?.to ? isWithinInterval(itemDate, { start: date.from, end: date.to }) : true;
+        return searchTermMatch && dateMatch;
+    });
+  }, [despesas, despesasSortConfig, searchTerm, date]);
+
+  const requestSort = (key: SortKey, table: 'servicos' | 'despesas') => {
+    const config = table === 'servicos' ? servicosSortConfig : despesasSortConfig;
+    const setConfig = table === 'servicos' ? setServicosSortConfig : setDespesasSortConfig;
+    let direction: SortDirection = 'asc';
+    if (config && config.key === key && config.direction === 'asc') {
+      direction = 'desc';
+    }
+    setConfig({ key, direction });
+  };
 
   const handleSave = async (table: 'servicos' | 'despesas', rowIndex: number, columnId: string, value: any) => {
     setEditingCell(null);
-    const recordList = table === 'servicos' ? servicos : despesas;
-    const setRecordList = table === 'servicos' ? setServicos : setDespesas;
-    const record = recordList[rowIndex];
+    const recordList = table === 'servicos' ? sortedAndFilteredServicos : sortedAndFilteredDespesas;
+    const setRecordListState = table === 'servicos' ? setServicos : setDespesas;
+    const recordToUpdate = recordList[rowIndex];
     const updatedValue = value instanceof Date ? format(value, 'yyyy-MM-dd') : value;
-    const updatedRecords = [...recordList];
-    updatedRecords[rowIndex] = { ...record, [columnId]: updatedValue };
-    setRecordList(updatedRecords);
-    if (!record.id) {
-      const recordToInsert = { ...updatedRecords[rowIndex], placa_veiculo: placa };
+    
+    if (!recordToUpdate.id) {
+      const recordToInsert = { ...recordToUpdate, [columnId]: updatedValue, placa_veiculo: placa };
+      setRecordListState(prev => prev.map(item => item === recordToUpdate ? recordToInsert : item));
+
       const { data, error } = await supabase.from(table).insert(recordToInsert).select().single();
       if (error) {
         console.error(`Erro ao inserir ${table}:`, error);
         setError(`Falha ao salvar. Por favor, tente novamente.`);
-        setRecordList(recordList.filter((_, idx) => idx !== rowIndex));
+        setRecordListState(prev => prev.filter(item => item !== recordToInsert));
       } else {
-        const finalRecords = [...recordList];
-        finalRecords[rowIndex] = data;
-        setRecordList(finalRecords);
+        setRecordListState(prev => prev.map(item => item === recordToInsert ? data : item));
       }
     } else {
-      const { error } = await supabase.from(table).update({ [columnId]: updatedValue }).eq('id', record.id);
+      setRecordListState(prev => prev.map(item => item.id === recordToUpdate.id ? { ...item, [columnId]: updatedValue } : item));
+      const { error } = await supabase.from(table).update({ [columnId]: updatedValue }).eq('id', recordToUpdate.id);
       if (error) {
         console.error(`Erro ao atualizar ${table}:`, error);
         setError(`Falha ao salvar. Por favor, tente novamente.`);
-        setRecordList(recordList);
       }
     }
   };
-
+  
   const handleAddRow = (table: 'servicos' | 'despesas') => {
     const today = format(new Date(), 'yyyy-MM-dd');
     if (table === 'servicos') {
         const newServico: Partial<Servico> = { data: today, os: '', cliente: '', operador: '', n_fiscal: '', boleto: '', vencimento: today, valor_bruto: 0, data_pagamento: null, status: 'Pendente' };
         setServicos(prev => {
             const newIndex = prev.length;
-            // 3. Efeito secundário para scroll e foco
             setTimeout(() => {
                 servicosContentRef.current?.scrollTo({ top: servicosContentRef.current.scrollHeight, behavior: 'smooth' });
+                setHighlightedRow({ table: 'servicos', index: newIndex });
+                setTimeout(() => setHighlightedRow(null), 3000);
                 setEditingCell({ table: 'servicos', rowIndex: newIndex, columnId: 'data' });
             }, 100);
             return [...prev, newServico];
@@ -210,6 +223,8 @@ const VeiculoDetalhes = () => {
             const newIndex = prev.length;
             setTimeout(() => {
                 despesasContentRef.current?.scrollTo({ top: despesasContentRef.current.scrollHeight, behavior: 'smooth' });
+                setHighlightedRow({ table: 'despesas', index: newIndex });
+                setTimeout(() => setHighlightedRow(null), 3000);
                 setEditingCell({ table: 'despesas', rowIndex: newIndex, columnId: 'data' });
             }, 100);
             return [...prev, newDespesa];
@@ -218,9 +233,8 @@ const VeiculoDetalhes = () => {
   };
 
   const handleDelete = async (table: 'servicos' | 'despesas', id: number) => {
-    const recordList = table === 'servicos' ? servicos : despesas;
     const setRecordList = table === 'servicos' ? setServicos : setDespesas;
-    setRecordList(recordList.filter(record => record.id !== id));
+    setRecordList(prev => prev.filter(record => record.id !== id));
     const { error } = await supabase.from(table).delete().eq('id', id);
     if (error) {
         console.error(`Erro ao excluir ${table}:`, error);
@@ -228,6 +242,12 @@ const VeiculoDetalhes = () => {
     }
   };
   
+  const dateRangeButtonText = date?.from
+    ? date.to
+      ? `${format(date.from, "dd/MM/yy")} - ${format(date.to, "dd/MM/yy")}`
+      : format(date.from, "dd/MM/yy")
+    : "Selecione o período";
+
   if (loading) return <p>A carregar detalhes do veículo...</p>
   if (error) return <p className="text-destructive">{error}</p>
 
@@ -250,7 +270,7 @@ const VeiculoDetalhes = () => {
               <PopoverTrigger asChild>
                 <Button id="date" variant={"outline"} className={cn("w-[240px] justify-start text-left font-normal", !date && "text-muted-foreground")}>
                   <CalendarIcon className="mr-2 h-4 w-4" />
-                  {date?.from ? (date.to ? (<>{format(date.from, "dd/MM/yy")} - {format(date.to, "dd/MM/yy")}</>) : (format(date.from, "dd/MM/yy"))) : (<span>Selecione o período</span>)}
+                  <span>{dateRangeButtonText}</span>
                 </Button>
               </PopoverTrigger>
               <PopoverContent className="w-auto p-0" align="start">
@@ -261,7 +281,7 @@ const VeiculoDetalhes = () => {
         </CardHeader>
       </Card>
       
-      <div className="grid grid-cols-1  gap-6">
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>Serviços Realizados</CardTitle>
@@ -269,27 +289,29 @@ const VeiculoDetalhes = () => {
               <Plus className="h-4 w-4 mr-2" /> Adicionar Serviço
             </Button>
           </CardHeader>
-          {/* 4. Atribuir a ref ao contentor */}
-          <CardContent className="overflow-x-auto" ref={servicosContentRef}>
+          <CardContent className="overflow-auto max-h-[60vh]" ref={servicosContentRef}>
             <Table>
-              <TableHeader>
+              <TableHeader className="bg-green-100 sticky top-0">
                 <TableRow>
-                    <TableHead className="min-w-[120px]">Data</TableHead>
-                    <TableHead className="min-w-[150px]">O.S</TableHead> 
-                    <TableHead className="min-w-[180px]">Cliente</TableHead>
+                    <TableHead className="min-w-[120px]"><Button variant="ghost" onClick={() => requestSort('data', 'servicos')}>Data <ArrowUpDown className="h-4 w-4 inline ml-2" /></Button></TableHead>
+                    <TableHead className="min-w-[150px]"><Button variant="ghost" onClick={() => requestSort('os', 'servicos')}>O.S <ArrowUpDown className="h-4 w-4 inline ml-2" /></Button></TableHead> 
+                    <TableHead className="min-w-[180px]"><Button variant="ghost" onClick={() => requestSort('cliente', 'servicos')}>Cliente <ArrowUpDown className="h-4 w-4 inline ml-2" /></Button></TableHead>
                     <TableHead className="min-w-[150px]">Operador</TableHead>
                     <TableHead className="min-w-[100px]">N° Fiscal</TableHead>
                     <TableHead className="min-w-[100px]">Boleto</TableHead>
-                    <TableHead className="min-w-[120px]">Vencimento</TableHead>
-                    <TableHead className="min-w-[130px]">Valor Bruto</TableHead>
+                    <TableHead className="min-w-[120px]"><Button variant="ghost" onClick={() => requestSort('vencimento', 'servicos')}>Vencimento <ArrowUpDown className="h-4 w-4 inline ml-2" /></Button></TableHead>
+                    <TableHead className="min-w-[130px]"><Button variant="ghost" onClick={() => requestSort('valor_bruto', 'servicos')}>Valor Bruto <ArrowUpDown className="h-4 w-4 inline ml-2" /></Button></TableHead>
                     <TableHead className="min-w-[120px]">Data Pagto.</TableHead>
-                    <TableHead className="min-w-[120px]">Status</TableHead>
+                    <TableHead className="min-w-[120px]"><Button variant="ghost" onClick={() => requestSort('status', 'servicos')}>Status <ArrowUpDown className="h-4 w-4 inline ml-2" /></Button></TableHead>
                     <TableHead>Ações</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredServicos.map((servico, rowIndex) => (
-                  <TableRow key={servico.id || `new-${rowIndex}`}>
+                {sortedAndFilteredServicos.map((servico, rowIndex) => (
+                  <TableRow 
+                    key={servico.id || `new-${rowIndex}`}
+                    className={cn( "transition-colors duration-1000", highlightedRow?.table === 'servicos' && highlightedRow?.index === servicos.findIndex(s => s === servico) ? 'bg-green-100' : '' )}
+                  >
                     <TableCell><EditableCell type="date" value={servico.data} isEditing={editingCell?.table === 'servicos' && editingCell.rowIndex === rowIndex && editingCell.columnId === 'data'} onToggleEditing={(isEditing) => setEditingCell(isEditing ? { table: 'servicos', rowIndex, columnId: 'data' } : null)} onSave={(value) => handleSave('servicos', rowIndex, 'data', value)}/></TableCell>
                     <TableCell><EditableCell type="text" value={servico.os} isEditing={editingCell?.table === 'servicos' && editingCell.rowIndex === rowIndex && editingCell.columnId === 'os'} onToggleEditing={(isEditing) => setEditingCell(isEditing ? { table: 'servicos', rowIndex, columnId: 'os' } : null)} onSave={(value) => handleSave('servicos', rowIndex, 'os', value)}/></TableCell>
                     <TableCell><EditableCell type="text" value={servico.cliente} isEditing={editingCell?.table === 'servicos' && editingCell.rowIndex === rowIndex && editingCell.columnId === 'cliente'} onToggleEditing={(isEditing) => setEditingCell(isEditing ? { table: 'servicos', rowIndex, columnId: 'cliente' } : null)} onSave={(value) => handleSave('servicos', rowIndex, 'cliente', value)}/></TableCell>
@@ -337,21 +359,24 @@ const VeiculoDetalhes = () => {
               <Plus className="h-4 w-4 mr-2" /> Adicionar Despesa
             </Button>
           </CardHeader>
-          <CardContent className="overflow-x-auto" ref={despesasContentRef}>
+          <CardContent className="overflow-auto max-h-[60vh]" ref={despesasContentRef}>
             <Table>
-              <TableHeader>
+              <TableHeader className="bg-green-100 sticky top-0">
                 <TableRow>
-                  <TableHead className="min-w-[120px]">Data</TableHead>
-                  <TableHead className="min-w-[180px]">Fornecedor</TableHead>
+                  <TableHead className="min-w-[120px]"><Button variant="ghost" onClick={() => requestSort('data', 'despesas')}>Data <ArrowUpDown className="h-4 w-4 inline ml-2" /></Button></TableHead>
+                  <TableHead className="min-w-[180px]"><Button variant="ghost" onClick={() => requestSort('fornecedor', 'despesas')}>Fornecedor <ArrowUpDown className="h-4 w-4 inline ml-2" /></Button></TableHead>
                   <TableHead className="min-w-[200px]">Descrição</TableHead>
-                  <TableHead className="min-w-[120px]">Vencimento</TableHead>
-                  <TableHead className="min-w-[130px]">Valor Total</TableHead>
+                  <TableHead className="min-w-[120px]"><Button variant="ghost" onClick={() => requestSort('vencimento', 'despesas')}>Vencimento <ArrowUpDown className="h-4 w-4 inline ml-2" /></Button></TableHead>
+                  <TableHead className="min-w-[130px]"><Button variant="ghost" onClick={() => requestSort('valor_total', 'despesas')}>Valor Total <ArrowUpDown className="h-4 w-4 inline ml-2" /></Button></TableHead>
                   <TableHead>Ações</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                 {filteredDespesas.map((despesa, rowIndex) => (
-                  <TableRow key={despesa.id || `new-${rowIndex}`}>
+                 {sortedAndFilteredDespesas.map((despesa, rowIndex) => (
+                  <TableRow 
+                    key={despesa.id || `new-${rowIndex}`}
+                    className={cn( "transition-colors duration-1000", highlightedRow?.table === 'despesas' && highlightedRow?.index === despesas.findIndex(d => d === despesa) ? 'bg-green-100' : '' )}
+                  >
                     <TableCell><EditableCell type="date" value={despesa.data} isEditing={editingCell?.table === 'despesas' && editingCell.rowIndex === rowIndex && editingCell.columnId === 'data'} onToggleEditing={(isEditing) => setEditingCell(isEditing ? { table: 'despesas', rowIndex, columnId: 'data' } : null)} onSave={(value) => handleSave('despesas', rowIndex, 'data', value)}/></TableCell>
                     <TableCell><EditableCell type="text" value={despesa.fornecedor} isEditing={editingCell?.table === 'despesas' && editingCell.rowIndex === rowIndex && editingCell.columnId === 'fornecedor'} onToggleEditing={(isEditing) => setEditingCell(isEditing ? { table: 'despesas', rowIndex, columnId: 'fornecedor' } : null)} onSave={(value) => handleSave('despesas', rowIndex, 'fornecedor', value)}/></TableCell>
                     <TableCell><EditableCell type="text" value={despesa.descricao} isEditing={editingCell?.table === 'despesas' && editingCell.rowIndex === rowIndex && editingCell.columnId === 'descricao'} onToggleEditing={(isEditing) => setEditingCell(isEditing ? { table: 'despesas', rowIndex, columnId: 'descricao' } : null)} onSave={(value) => handleSave('despesas', rowIndex, 'descricao', value)}/></TableCell>
