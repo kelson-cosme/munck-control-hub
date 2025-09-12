@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useParams, NavLink } from "react-router-dom";
 import { ChevronLeft, Plus, Search, Calendar as CalendarIcon, Trash2, ArrowUpDown } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -66,7 +66,25 @@ const EditableCell = ({ value: initialValue, onSave, isEditing, onToggleEditing,
     if (isEditing) {
         const currentDate = parseDateStringAsLocal(value);
         switch (type) {
-            case 'date': return ( <Popover open onOpenChange={(isOpen) => !isOpen && handleSave()}> <PopoverTrigger asChild> <Button variant="outline" className="h-8 w-full justify-start font-normal text-xs md:text-sm"> <span>{currentDate ? format(currentDate, "dd/MM/yyyy") : "Selecione..."}</span> </Button> </PopoverTrigger> <PopoverContent className="w-auto p-0"> <Calendar mode="single" selected={currentDate || undefined} onSelect={(date) => date && setValue(date)} initialFocus /> </PopoverContent> </Popover> );
+            case 'date': 
+                return ( 
+                    <Popover open onOpenChange={(isOpen) => !isOpen && handleSave()}> 
+                        <PopoverTrigger className="w-full">
+                            <div className={cn(buttonVariants({ variant: "outline" }), "h-8 w-full justify-start text-left font-normal text-xs md:text-sm")}>
+                                <CalendarIcon className="mr-2 h-4 w-4" />
+                                {currentDate ? format(currentDate, "dd/MM/yyyy") : "Selecione..."}
+                            </div>
+                        </PopoverTrigger> 
+                        <PopoverContent className="w-auto p-0"> 
+                            <Calendar 
+                                mode="single" 
+                                selected={currentDate || undefined} 
+                                onSelect={(date) => setValue(date || null)} 
+                                initialFocus 
+                            /> 
+                        </PopoverContent> 
+                    </Popover> 
+                );
             case 'select': return ( <Select value={value as string} onValueChange={(newValue) => onSave(newValue)}> <SelectTrigger className="h-8 text-xs md:text-sm"> <SelectValue placeholder="Selecione..." /> </SelectTrigger> <SelectContent> {options.map(option => <SelectItem key={option} value={option}>{option}</SelectItem>)} </SelectContent> </Select> );
             case 'number': return ( <Input type="number" value={value as number} onChange={(e) => setValue(parseFloat(e.target.value) || 0)} onBlur={handleSave} onKeyDown={handleKeyDown} autoFocus className="h-8 text-xs md:text-sm"/> );
             default: return ( <Input value={value as string} onChange={(e) => setValue(e.target.value)} onBlur={handleSave} onKeyDown={handleKeyDown} autoFocus className="h-8 text-xs md:text-sm"/> );
