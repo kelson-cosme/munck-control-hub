@@ -9,15 +9,21 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { 
-  Select, 
-  SelectContent, 
-  SelectItem, 
-  SelectTrigger, 
-  SelectValue 
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from "@/components/ui/select";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import { supabase } from "@/lib/supabaseClient";
-import { format, startOfMonth, endOfMonth, isWithinInterval, addDays, parseISO, isValid } from 'date-fns';
+import { format, isWithinInterval, addDays, parseISO, isValid } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 // Interfaces
@@ -36,6 +42,17 @@ interface Despesa {
     id: number;
     valor_total: number;
     data: string;
+    placa_veiculo: string;
+}
+
+interface Veiculo {
+    placa: string;
+}
+
+interface ResumoVeiculo {
+    placa: string;
+    totalAReceber: number;
+    despesas: number;
 }
 
 // Função para formatar moeda
@@ -59,6 +76,7 @@ const Dashboard = () => {
         despesas: 0,
         valorLiquido: 0,
     });
+    const [resumoPorVeiculo, setResumoPorVeiculo] = useState<ResumoVeiculo[]>([]);
     const [previsaoRecebimento, setPrevisaoRecebimento] = useState<{periodo: string, valor: number}[]>([]);
     const [servicosPendentes, setServicosPendentes] = useState<Servico[]>([]);
     const [loading, setLoading] = useState(true);
@@ -72,13 +90,14 @@ const Dashboard = () => {
             setLoading(true);
             setError(null);
             
-            const [servicosResponse, despesasResponse] = await Promise.all([
+            const [servicosResponse, despesasResponse, veiculosResponse] = await Promise.all([
                 supabase.from('servicos').select('id, cliente, placa_veiculo, valor_bruto, status, data, data_pagamento, vencimento'),
-                supabase.from('despesas').select('id, valor_total, data')
+                supabase.from('despesas').select('id, valor_total, data, placa_veiculo'),
+                supabase.from('veiculos').select('placa')
             ]);
 
-            if (servicosResponse.error || despesasResponse.error) {
-                console.error("Erro ao buscar dados:", servicosResponse.error || despesasResponse.error);
+            if (servicosResponse.error || despesasResponse.error || veiculosResponse.error) {
+                console.error("Erro ao buscar dados:", servicosResponse.error || despesasResponse.error || veiculosResponse.error);
                 setError("Não foi possível carregar os dados do dashboard.");
                 setLoading(false);
                 return;
@@ -86,6 +105,7 @@ const Dashboard = () => {
 
             const allServicos: Servico[] = servicosResponse.data || [];
             const allDespesas: Despesa[] = despesasResponse.data || [];
+            const allVeiculos: Veiculo[] = veiculosResponse.data || [];
 
             const dates = [...allServicos.map(s => s.data), ...allDespesas.map(d => d.data)];
             const uniqueMonths = [...new Set(dates.map(d => format(parseISO(d), 'yyyy-MM')))];
@@ -107,7 +127,7 @@ const Dashboard = () => {
                 .filter(s => s.status === 'Pago')
                 .reduce((acc, s) => acc + s.valor_bruto, 0);
 
-            const totalAReceber = allServicos
+            const totalAReceber = servicos
                 .filter(s => s.status === 'Pendente' || s.status === 'Vencido')
                 .reduce((acc, s) => acc + s.valor_bruto, 0);
 
@@ -119,6 +139,24 @@ const Dashboard = () => {
                 despesas: despesasTotal,
                 valorLiquido: totalRecebido - despesasTotal
             });
+
+            // Calcula o resumo por veículo
+            const resumoVeiculos = allVeiculos.map(veiculo => {
+                const totalAReceberVeiculo = servicos
+                    .filter(s => s.placa_veiculo === veiculo.placa && (s.status === 'Pendente' || s.status === 'Vencido'))
+                    .reduce((acc, s) => acc + s.valor_bruto, 0);
+                
+                const despesasVeiculo = despesas
+                    .filter(d => d.placa_veiculo === veiculo.placa)
+                    .reduce((acc, d) => acc + d.valor_total, 0);
+
+                return {
+                    placa: veiculo.placa,
+                    totalAReceber: totalAReceberVeiculo,
+                    despesas: despesasVeiculo
+                };
+            }).filter(v => v.totalAReceber > 0 || v.despesas > 0); // Mostra apenas veículos com valores
+            setResumoPorVeiculo(resumoVeiculos);
 
             const pendentes = allServicos
                 .filter(s => s.status === 'Pendente' || s.status === 'Vencido')
@@ -194,7 +232,7 @@ const Dashboard = () => {
                     <TableCell className="text-right">{formatCurrency(summary.totalRecebido)}</TableCell>
                   </TableRow>
                   <TableRow>
-                    <TableCell className="font-medium">Total a Receber (Geral)</TableCell>
+                    <TableCell className="font-medium">Total a Receber {summaryLabel}</TableCell>
                     <TableCell className="text-right">{formatCurrency(summary.totalAReceber)}</TableCell>
                   </TableRow>
                   <TableRow>
@@ -207,6 +245,31 @@ const Dashboard = () => {
                   </TableRow>
               </TableBody>
             </Table>
+            <Accordion type="single" collapsible className="w-full mt-4">
+              <AccordionItem value="item-1">
+                <AccordionTrigger>Detalhes por Veículo {summaryLabel}</AccordionTrigger>
+                <AccordionContent>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Veículo</TableHead>
+                        <TableHead className="text-right">A Receber</TableHead>
+                        <TableHead className="text-right">Despesas</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {resumoPorVeiculo.map(veiculo => (
+                        <TableRow key={veiculo.placa}>
+                          <TableCell className="font-medium">{veiculo.placa}</TableCell>
+                          <TableCell className="text-right">{formatCurrency(veiculo.totalAReceber)}</TableCell>
+                          <TableCell className="text-right text-destructive">{formatCurrency(veiculo.despesas)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
           </CardContent>
         </Card>
 

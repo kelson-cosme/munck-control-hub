@@ -113,6 +113,12 @@ const VeiculoDetalhes = () => {
   
   const [servicosSortConfig, setServicosSortConfig] = useState<{ key: SortKey; direction: SortDirection } | null>({ key: 'data', direction: 'desc' });
   const [despesasSortConfig, setDespesasSortConfig] = useState<{ key: SortKey; direction: SortDirection } | null>({ key: 'data', direction: 'desc' });
+  
+  const [servicosSummary, setServicosSummary] = useState({
+    total: 0,
+    recebido: 0,
+    aReceber: 0,
+  });
 
   const servicosContentRef = useRef<HTMLDivElement>(null);
   const despesasContentRef = useRef<HTMLDivElement>(null);
@@ -159,6 +165,22 @@ const VeiculoDetalhes = () => {
       return searchTermMatch && dateMatch;
     });
   }, [servicos, servicosSortConfig, searchTerm, date]);
+
+  useEffect(() => {
+    const total = sortedAndFilteredServicos
+        .filter(s => s.status !== 'Cancelado')
+        .reduce((acc, s) => acc + (s.valor_bruto || 0), 0);
+
+    const recebido = sortedAndFilteredServicos
+        .filter(s => s.status === 'Pago')
+        .reduce((acc, s) => acc + (s.valor_bruto || 0), 0);
+    
+    const aReceber = sortedAndFilteredServicos
+        .filter(s => s.status === 'Pendente' || s.status === 'Vencido')
+        .reduce((acc, s) => acc + (s.valor_bruto || 0), 0);
+
+    setServicosSummary({ total, recebido, aReceber });
+  }, [sortedAndFilteredServicos]);
 
   const sortedAndFilteredDespesas = useMemo(() => {
     let sortableItems = [...despesas];
@@ -278,6 +300,26 @@ const VeiculoDetalhes = () => {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Detalhes do Veículo: {placa}</h1>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Resumo dos Serviços</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-4 md:grid-cols-3">
+          <div className="flex flex-col">
+            <span className="text-sm text-muted-foreground">Saldo Total</span>
+            <span className="text-2xl font-bold">{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(servicosSummary.total)}</span>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-sm text-muted-foreground">Saldo Recebido</span>
+            <span className="text-2xl font-bold text-green-600">{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(servicosSummary.recebido)}</span>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-sm text-muted-foreground">À Receber</span>
+            <span className="text-2xl font-bold text-orange-500">{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(servicosSummary.aReceber)}</span>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
