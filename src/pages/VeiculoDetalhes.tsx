@@ -119,6 +119,7 @@ const VeiculoDetalhes = () => {
     recebido: 0,
     aReceber: 0,
   });
+  const [despesasSummary, setDespesasSummary] = useState({ total: 0 });
 
   const servicosContentRef = useRef<HTMLDivElement>(null);
   const despesasContentRef = useRef<HTMLDivElement>(null);
@@ -203,6 +204,11 @@ const VeiculoDetalhes = () => {
         return searchTermMatch && dateMatch;
     });
   }, [despesas, despesasSortConfig, searchTerm, date]);
+
+  useEffect(() => {
+    const total = sortedAndFilteredDespesas.reduce((acc, d) => acc + (d.valor_total || 0), 0);
+    setDespesasSummary({ total });
+  }, [sortedAndFilteredDespesas]);
 
   const requestSort = (key: SortKey, table: 'servicos' | 'despesas') => {
     const config = table === 'servicos' ? servicosSortConfig : despesasSortConfig;
@@ -303,9 +309,9 @@ const VeiculoDetalhes = () => {
 
       <Card>
         <CardHeader>
-          <CardTitle>Resumo dos Serviços</CardTitle>
+          <CardTitle>Resumo Financeiro do Veículo</CardTitle>
         </CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-3">
+        <CardContent className="grid gap-4 md:grid-cols-4">
           <div className="flex flex-col">
             <span className="text-sm text-muted-foreground">Saldo Total</span>
             <span className="text-2xl font-bold">{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(servicosSummary.total)}</span>
@@ -317,6 +323,10 @@ const VeiculoDetalhes = () => {
           <div className="flex flex-col">
             <span className="text-sm text-muted-foreground">À Receber</span>
             <span className="text-2xl font-bold text-orange-500">{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(servicosSummary.aReceber)}</span>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-sm text-muted-foreground">Total Despesas</span>
+            <span className="text-2xl font-bold text-red-600">{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(despesasSummary.total)}</span>
           </div>
         </CardContent>
       </Card>
