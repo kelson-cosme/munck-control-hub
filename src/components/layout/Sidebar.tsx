@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import {
   LayoutDashboard,
@@ -10,7 +9,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-// Itens de menu atualizados (removidos "Serviços" e "Despesas")
 const menuItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Veículos", url: "/veiculos", icon: Truck },
@@ -18,8 +16,12 @@ const menuItems = [
   { title: "Relatórios", url: "/relatorios", icon: FileText },
 ];
 
-export function Sidebar() {
-  const [collapsed, setCollapsed] = useState(false);
+interface SidebarProps {
+  collapsed: boolean;
+  setCollapsed: (collapsed: boolean) => void;
+}
+
+export function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
   const location = useLocation();
 
   const isActive = (path: string) => {
@@ -30,7 +32,7 @@ export function Sidebar() {
   return (
     <div
       className={cn(
-        "flex h-screen flex-col border-r bg-card",
+        "fixed top-0 left-0 z-10 flex h-screen flex-col border-r bg-card transition-all",
         collapsed ? "w-16" : "w-56"
       )}
     >

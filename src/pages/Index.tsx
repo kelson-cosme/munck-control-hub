@@ -78,6 +78,7 @@ const Dashboard = () => {
     });
     const [resumoPorVeiculo, setResumoPorVeiculo] = useState<ResumoVeiculo[]>([]);
     const [previsaoRecebimento, setPrevisaoRecebimento] = useState<{periodo: string, valor: number}[]>([]);
+    const [previsaoPorVeiculo, setPrevisaoPorVeiculo] = useState<Record<string, {periodo: string, valor: number}[]>>({});
     const [servicosPendentes, setServicosPendentes] = useState<Servico[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -158,7 +159,7 @@ const Dashboard = () => {
             }).filter(v => v.totalAReceber > 0 || v.despesas > 0); // Mostra apenas veículos com valores
             setResumoPorVeiculo(resumoVeiculos);
 
-            const pendentes = allServicos
+            const pendentes = servicos
                 .filter(s => s.status === 'Pendente' || s.status === 'Vencido')
                 .sort((a, b) => new Date(a.vencimento).getTime() - new Date(b.vencimento).getTime());
             setServicosPendentes(pendentes);
@@ -180,6 +181,25 @@ const Dashboard = () => {
                 return { periodo: p.label, valor };
             });
             setPrevisaoRecebimento(previsao);
+
+            // Previsão por Veículo
+            const veiculosComPendencias = [...new Set(pendentes.map(s => s.placa_veiculo))];
+            const previsaoVeiculos: Record<string, {periodo: string, valor: number}[]> = {};
+
+            veiculosComPendencias.forEach(placa => {
+                const servicosDoVeiculo = pendentes.filter(s => s.placa_veiculo === placa);
+                previsaoVeiculos[placa] = periodos.map(p => {
+                    const valor = servicosDoVeiculo
+                        .filter(s => {
+                            const vencimentoDate = parseDateStringAsLocal(s.vencimento);
+                            return vencimentoDate && isWithinInterval(vencimentoDate, { start: p.start, end: p.end });
+                        })
+                        .reduce((acc, s) => acc + s.valor_bruto, 0);
+                    return { periodo: p.label, valor };
+                });
+            });
+            setPrevisaoPorVeiculo(previsaoVeiculos);
+
 
             setLoading(false);
         };
@@ -277,7 +297,7 @@ const Dashboard = () => {
           <CardHeader>
             <CardTitle className="text-lg flex items-center gap-2">
               <TrendingUp className="h-5 w-5" />
-              Previsão de Recebimento
+              Previsão de Recebimento {summaryLabel}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -291,6 +311,28 @@ const Dashboard = () => {
                 ))}
               </TableBody>
             </Table>
+            <Accordion type="single" collapsible className="w-full mt-4">
+              <AccordionItem value="item-1">
+                <AccordionTrigger>Detalhes por Veículo</AccordionTrigger>
+                <AccordionContent>
+                  {Object.entries(previsaoPorVeiculo).map(([placa, previsao]) => (
+                    <div key={placa} className="mb-4">
+                      <h4 className="font-semibold mb-2">{placa}</h4>
+                      <Table>
+                        <TableBody>
+                          {previsao.map((item, index) => (
+                            <TableRow key={index}>
+                              <TableCell className="font-medium">{item.periodo}</TableCell>
+                              <TableCell className="text-right">{formatCurrency(item.valor)}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  ))}
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
           </CardContent>
         </Card>
       </div>
@@ -299,7 +341,7 @@ const Dashboard = () => {
         <CardHeader>
           <CardTitle className="text-lg flex items-center gap-2">
             <FileText className="h-5 w-5" />
-            Serviços Pendentes de Pagamento
+            Serviços Pendentes de Pagamento {summaryLabel}
           </CardTitle>
         </CardHeader>
         <CardContent>
