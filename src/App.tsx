@@ -11,6 +11,7 @@ import VeiculoDetalhes from "./pages/VeiculoDetalhes";
 import Motoristas from "./pages/Motoristas";
 import Relatorios from "./pages/Relatorios";
 import NotFound from "./pages/NotFound";
+import RelatorioMensal from "./pages/RelatorioMensal";
 
 const queryClient = new QueryClient();
 
@@ -28,6 +29,7 @@ const App = () => (
             {/* As rotas para /servicos e /despesas foram removidas */}
             <Route path="/motoristas" element={<Motoristas />} />
             <Route path="/relatorios" element={<Relatorios />} />
+            <Route path="/relatorios/mensal" element={<RelatorioMensal />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </AppLayout>
