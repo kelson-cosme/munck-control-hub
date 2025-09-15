@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useParams, NavLink } from "react-router-dom";
-import { ChevronLeft, Plus, Search, Calendar as CalendarIcon, Trash2, ArrowUpDown } from "lucide-react";
+import { ChevronLeft, Plus, Search, Calendar as CalendarIcon, Trash2, ArrowUpDown, Layers } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,7 +14,16 @@ import {
 } from "@/components/ui/table";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
+import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -27,7 +36,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { DateRange } from "react-day-picker";
-import { format, isWithinInterval, isValid } from "date-fns";
+import { format, isWithinInterval, isValid, addMonths } from "date-fns";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -114,34 +123,36 @@ const VeiculoDetalhes = () => {
   const [servicosSortConfig, setServicosSortConfig] = useState<{ key: SortKey; direction: SortDirection } | null>({ key: 'data', direction: 'desc' });
   const [despesasSortConfig, setDespesasSortConfig] = useState<{ key: SortKey; direction: SortDirection } | null>({ key: 'data', direction: 'desc' });
   
-  const [servicosSummary, setServicosSummary] = useState({
-    total: 0,
-    recebido: 0,
-    aReceber: 0,
-  });
+  const [servicosSummary, setServicosSummary] = useState({ total: 0, recebido: 0, aReceber: 0, });
   const [despesasSummary, setDespesasSummary] = useState({ total: 0 });
+
+  const [isInstallmentDialogOpen, setIsInstallmentDialogOpen] = useState(false);
+  const [selectedService, setSelectedService] = useState<Partial<Servico> | null>(null);
+  const [numInstallments, setNumInstallments] = useState(2);
+
 
   const servicosContentRef = useRef<HTMLDivElement>(null);
   const despesasContentRef = useRef<HTMLDivElement>(null);
+  
+  const fetchDetails = async () => {
+    if (!placa) return;
+    setLoading(true);
+    setError(null);
+    const [servicosResponse, despesasResponse] = await Promise.all([
+      supabase.from('servicos').select('*').eq('placa_veiculo', placa),
+      supabase.from('despesas').select('*').eq('placa_veiculo', placa)
+    ]);
+    if (servicosResponse.error || despesasResponse.error) {
+      console.error('Erro ao buscar detalhes:', servicosResponse.error || despesasResponse.error);
+      setError('Não foi possível carregar os detalhes do veículo.');
+    } else {
+      setServicos(servicosResponse.data || []);
+      setDespesas(despesasResponse.data || []);
+    }
+    setLoading(false);
+  };
 
   useEffect(() => {
-    const fetchDetails = async () => {
-      if (!placa) return;
-      setLoading(true);
-      setError(null);
-      const [servicosResponse, despesasResponse] = await Promise.all([
-        supabase.from('servicos').select('*').eq('placa_veiculo', placa),
-        supabase.from('despesas').select('*').eq('placa_veiculo', placa)
-      ]);
-      if (servicosResponse.error || despesasResponse.error) {
-        console.error('Erro ao buscar detalhes:', servicosResponse.error || despesasResponse.error);
-        setError('Não foi possível carregar os detalhes do veículo.');
-      } else {
-        setServicos(servicosResponse.data || []);
-        setDespesas(despesasResponse.data || []);
-      }
-      setLoading(false);
-    };
     fetchDetails();
   }, [placa]);
 
@@ -204,7 +215,7 @@ const VeiculoDetalhes = () => {
         return searchTermMatch && dateMatch;
     });
   }, [despesas, despesasSortConfig, searchTerm, date]);
-
+  
   useEffect(() => {
     const total = sortedAndFilteredDespesas.reduce((acc, d) => acc + (d.valor_total || 0), 0);
     setDespesasSummary({ total });
@@ -287,6 +298,55 @@ const VeiculoDetalhes = () => {
         setError('Falha ao excluir. Por favor, recarregue a página.');
     }
   };
+
+  const handleOpenInstallmentDialog = (servico: Partial<Servico>) => {
+    if (servico.os && /\(\d+\/\d+\)/.test(servico.os)) {
+        alert("Não é possível parcelar um serviço que já é uma parcela.");
+        return;
+    }
+    setSelectedService(servico);
+    setNumInstallments(2);
+    setIsInstallmentDialogOpen(true);
+  };
+  
+  const handleGenerateInstallments = async () => {
+    if (!selectedService || !selectedService.id || !selectedService.valor_bruto || !selectedService.vencimento || numInstallments < 2) {
+        alert("Serviço inválido ou número de parcelas menor que 2.");
+        return;
+    }
+
+    const { id, valor_bruto, vencimento, ...originalServiceData } = selectedService;
+    const installmentValue = parseFloat((valor_bruto / numInstallments).toFixed(2));
+    const originalDueDate = parseDateStringAsLocal(vencimento);
+    if (!originalDueDate) {
+        alert("O serviço original precisa de uma data de vencimento válida.");
+        return;
+    }
+
+    const newInstallments = Array.from({ length: numInstallments }, (_, i) => ({
+        ...originalServiceData,
+        os: `${originalServiceData.os || 'S/N'} (${i + 1}/${numInstallments})`,
+        valor_bruto: installmentValue,
+        vencimento: format(addMonths(originalDueDate, i), 'yyyy-MM-dd'),
+        status: 'Pendente' as const,
+        data_pagamento: null,
+    }));
+
+    const { error: deleteError } = await supabase.from('servicos').delete().eq('id', id);
+    if (deleteError) {
+        setError("Falha ao remover o serviço original para gerar as parcelas.");
+        return;
+    }
+
+    const { error: insertError } = await supabase.from('servicos').insert(newInstallments);
+    if (insertError) {
+        setError("Falha ao criar as parcelas. O serviço original foi removido. Tente adicioná-lo novamente.");
+    }
+
+    setIsInstallmentDialogOpen(false);
+    setSelectedService(null);
+    fetchDetails(); // Recarrega todos os dados
+  };
   
   const dateRangeButtonText = date?.from
     ? date.to
@@ -351,7 +411,7 @@ const VeiculoDetalhes = () => {
         </CardHeader>
       </Card>
       
-      <div className="grid grid-cols-1 gap-6">
+      <div className="grid grid-cols-1  gap-6">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>Serviços Realizados</CardTitle>
@@ -361,26 +421,30 @@ const VeiculoDetalhes = () => {
           </CardHeader>
           <CardContent className="overflow-auto max-h-[60vh]" ref={servicosContentRef}>
             <Table>
-              <TableHeader className="bg-green-100 sticky top-0">
-                <TableRow>
-                    <TableHead className="min-w-[120px]"><Button variant="ghost" onClick={() => requestSort('data', 'servicos')}>Data <ArrowUpDown className="h-4 w-4 inline ml-2" /></Button></TableHead>
-                    <TableHead className="min-w-[150px]"><Button variant="ghost" onClick={() => requestSort('os', 'servicos')}>O.S <ArrowUpDown className="h-4 w-4 inline ml-2" /></Button></TableHead> 
-                    <TableHead className="min-w-[180px]"><Button variant="ghost" onClick={() => requestSort('cliente', 'servicos')}>Cliente <ArrowUpDown className="h-4 w-4 inline ml-2" /></Button></TableHead>
-                    <TableHead className="min-w-[150px]">Operador</TableHead>
-                    <TableHead className="min-w-[100px]">N° Fiscal</TableHead>
-                    <TableHead className="min-w-[100px]">Boleto</TableHead>
-                    <TableHead className="min-w-[120px]"><Button variant="ghost" onClick={() => requestSort('vencimento', 'servicos')}>Vencimento <ArrowUpDown className="h-4 w-4 inline ml-2" /></Button></TableHead>
-                    <TableHead className="min-w-[130px]"><Button variant="ghost" onClick={() => requestSort('valor_bruto', 'servicos')}>Valor Bruto <ArrowUpDown className="h-4 w-4 inline ml-2" /></Button></TableHead>
-                    <TableHead className="min-w-[120px]">Data Pagto.</TableHead>
-                    <TableHead className="min-w-[120px]"><Button variant="ghost" onClick={() => requestSort('status', 'servicos')}>Status <ArrowUpDown className="h-4 w-4 inline ml-2" /></Button></TableHead>
-                    <TableHead>Ações</TableHead>
+              <TableHeader>
+                <TableRow className="bg-card hover:bg-card">
+                    <TableHead className="sticky top-0 bg-inherit min-w-[120px]"><Button variant="ghost" onClick={() => requestSort('data', 'servicos')}>Data <ArrowUpDown className="h-4 w-4 inline ml-2" /></Button></TableHead>
+                    <TableHead className="sticky top-0 bg-inherit min-w-[150px]"><Button variant="ghost" onClick={() => requestSort('os', 'servicos')}>O.S <ArrowUpDown className="h-4 w-4 inline ml-2" /></Button></TableHead> 
+                    <TableHead className="sticky top-0 bg-inherit min-w-[180px]"><Button variant="ghost" onClick={() => requestSort('cliente', 'servicos')}>Cliente <ArrowUpDown className="h-4 w-4 inline ml-2" /></Button></TableHead>
+                    <TableHead className="sticky top-0 bg-inherit min-w-[150px]">Operador</TableHead>
+                    <TableHead className="sticky top-0 bg-inherit min-w-[100px]">N° Fiscal</TableHead>
+                    <TableHead className="sticky top-0 bg-inherit min-w-[100px]">Boleto</TableHead>
+                    <TableHead className="sticky top-0 bg-inherit min-w-[120px]"><Button variant="ghost" onClick={() => requestSort('vencimento', 'servicos')}>Vencimento <ArrowUpDown className="h-4 w-4 inline ml-2" /></Button></TableHead>
+                    <TableHead className="sticky top-0 bg-inherit min-w-[130px]"><Button variant="ghost" onClick={() => requestSort('valor_bruto', 'servicos')}>Valor Bruto <ArrowUpDown className="h-4 w-4 inline ml-2" /></Button></TableHead>
+                    <TableHead className="sticky top-0 bg-inherit min-w-[120px]">Data Pagto.</TableHead>
+                    <TableHead className="sticky top-0 bg-inherit min-w-[120px]"><Button variant="ghost" onClick={() => requestSort('status', 'servicos')}>Status <ArrowUpDown className="h-4 w-4 inline ml-2" /></Button></TableHead>
+                    <TableHead className="sticky top-0 bg-inherit">Ações</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {sortedAndFilteredServicos.map((servico, rowIndex) => (
                   <TableRow 
                     key={servico.id || `new-${rowIndex}`}
-                    className={cn( "transition-colors duration-1000", highlightedRow?.table === 'servicos' && highlightedRow?.index === servicos.findIndex(s => s === servico) ? 'bg-green-100' : '' )}
+                    className={cn(
+                        "transition-colors duration-1000",
+                        highlightedRow?.table === 'servicos' && highlightedRow?.index === servicos.findIndex(s => s === servico) ? 'bg-green-100' : '',
+                        servico.os && /\(\d+\/\d+\)/.test(servico.os) ? 'bg-blue-50 hover:bg-blue-100' : ''
+                    )}
                   >
                     <TableCell><EditableCell type="date" value={servico.data} isEditing={editingCell?.table === 'servicos' && editingCell.rowIndex === rowIndex && editingCell.columnId === 'data'} onToggleEditing={(isEditing) => setEditingCell(isEditing ? { table: 'servicos', rowIndex, columnId: 'data' } : null)} onSave={(value) => handleSave('servicos', rowIndex, 'data', value)}/></TableCell>
                     <TableCell><EditableCell type="text" value={servico.os} isEditing={editingCell?.table === 'servicos' && editingCell.rowIndex === rowIndex && editingCell.columnId === 'os'} onToggleEditing={(isEditing) => setEditingCell(isEditing ? { table: 'servicos', rowIndex, columnId: 'os' } : null)} onSave={(value) => handleSave('servicos', rowIndex, 'os', value)}/></TableCell>
@@ -392,7 +456,10 @@ const VeiculoDetalhes = () => {
                     <TableCell><EditableCell type="number" value={servico.valor_bruto} isEditing={editingCell?.table === 'servicos' && editingCell.rowIndex === rowIndex && editingCell.columnId === 'valor_bruto'} onToggleEditing={(isEditing) => setEditingCell(isEditing ? { table: 'servicos', rowIndex, columnId: 'valor_bruto' } : null)} onSave={(value) => handleSave('servicos', rowIndex, 'valor_bruto', value)}/></TableCell>
                     <TableCell><EditableCell type="date" value={servico.data_pagamento} isEditing={editingCell?.table === 'servicos' && editingCell.rowIndex === rowIndex && editingCell.columnId === 'data_pagamento'} onToggleEditing={(isEditing) => setEditingCell(isEditing ? { table: 'servicos', rowIndex, columnId: 'data_pagamento' } : null)} onSave={(value) => handleSave('servicos', rowIndex, 'data_pagamento', value)}/></TableCell>
                     <TableCell><EditableCell type="select" options={statusOptions} value={servico.status} isEditing={editingCell?.table === 'servicos' && editingCell.rowIndex === rowIndex && editingCell.columnId === 'status'} onToggleEditing={(isEditing) => setEditingCell(isEditing ? { table: 'servicos', rowIndex, columnId: 'status' } : null)} onSave={(value) => handleSave('servicos', rowIndex, 'status', value)}/></TableCell>
-                    <TableCell>
+                    <TableCell className="flex items-center">
+                      <Button variant="ghost" size="icon" onClick={() => handleOpenInstallmentDialog(servico)} title="Parcelar serviço">
+                        <Layers className="h-4 w-4 text-blue-600" />
+                      </Button>
                       {servico.id && (
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
@@ -431,14 +498,14 @@ const VeiculoDetalhes = () => {
           </CardHeader>
           <CardContent className="overflow-auto max-h-[60vh]" ref={despesasContentRef}>
             <Table>
-              <TableHeader className="bg-green-100 sticky top-0">
-                <TableRow>
-                  <TableHead className="min-w-[120px]"><Button variant="ghost" onClick={() => requestSort('data', 'despesas')}>Data <ArrowUpDown className="h-4 w-4 inline ml-2" /></Button></TableHead>
-                  <TableHead className="min-w-[180px]"><Button variant="ghost" onClick={() => requestSort('fornecedor', 'despesas')}>Fornecedor <ArrowUpDown className="h-4 w-4 inline ml-2" /></Button></TableHead>
-                  <TableHead className="min-w-[200px]">Descrição</TableHead>
-                  <TableHead className="min-w-[120px]"><Button variant="ghost" onClick={() => requestSort('vencimento', 'despesas')}>Vencimento <ArrowUpDown className="h-4 w-4 inline ml-2" /></Button></TableHead>
-                  <TableHead className="min-w-[130px]"><Button variant="ghost" onClick={() => requestSort('valor_total', 'despesas')}>Valor Total <ArrowUpDown className="h-4 w-4 inline ml-2" /></Button></TableHead>
-                  <TableHead>Ações</TableHead>
+              <TableHeader>
+                <TableRow className="bg-card hover:bg-card">
+                  <TableHead className="sticky top-0 bg-inherit min-w-[120px]"><Button variant="ghost" onClick={() => requestSort('data', 'despesas')}>Data <ArrowUpDown className="h-4 w-4 inline ml-2" /></Button></TableHead>
+                  <TableHead className="sticky top-0 bg-inherit min-w-[180px]"><Button variant="ghost" onClick={() => requestSort('fornecedor', 'despesas')}>Fornecedor <ArrowUpDown className="h-4 w-4 inline ml-2" /></Button></TableHead>
+                  <TableHead className="sticky top-0 bg-inherit min-w-[200px]">Descrição</TableHead>
+                  <TableHead className="sticky top-0 bg-inherit min-w-[120px]"><Button variant="ghost" onClick={() => requestSort('vencimento', 'despesas')}>Vencimento <ArrowUpDown className="h-4 w-4 inline ml-2" /></Button></TableHead>
+                  <TableHead className="sticky top-0 bg-inherit min-w-[130px]"><Button variant="ghost" onClick={() => requestSort('valor_total', 'despesas')}>Valor Total <ArrowUpDown className="h-4 w-4 inline ml-2" /></Button></TableHead>
+                  <TableHead className="sticky top-0 bg-inherit">Ações</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -482,6 +549,34 @@ const VeiculoDetalhes = () => {
           </CardContent>
         </Card>
       </div>
+      
+      <Dialog open={isInstallmentDialogOpen} onOpenChange={setIsInstallmentDialogOpen}>
+        <DialogContent>
+            <DialogHeader>
+                <DialogTitle>Gerar Parcelamento para O.S {selectedService?.os}</DialogTitle>
+                <DialogDescription>
+                    O serviço original será removido e substituído pelo número de parcelas definido. O valor será dividido e os vencimentos serão mensais.
+                </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+                <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="installments" className="text-right">Número de Parcelas</Label>
+                    <Input
+                        id="installments"
+                        type="number"
+                        value={numInstallments}
+                        onChange={(e) => setNumInstallments(parseInt(e.target.value, 10))}
+                        className="col-span-3"
+                        min="2"
+                    />
+                </div>
+            </div>
+            <DialogFooter>
+                <Button variant="outline" onClick={() => setIsInstallmentDialogOpen(false)}>Cancelar</Button>
+                <Button onClick={handleGenerateInstallments}>Confirmar Parcelamento</Button>
+            </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
