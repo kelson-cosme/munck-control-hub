@@ -71,16 +71,34 @@ const Relatorios = () => {
     try {
       const { servicos, despesas } = await fetchReportData(selectedMonth);
 
-      const faturamentoBruto = servicos.filter(s => s.status !== 'Cancelado').reduce((acc, s) => acc + s.valor_bruto, 0);
-      const totalDespesas = despesas.reduce((acc, d) => acc + d.valor_total, 0);
+      // Agrupa dados por veículo
+      const plates = [...new Set([...servicos.map(s => s.placa_veiculo), ...despesas.map(d => d.placa_veiculo)])];
+      const dataByVehicle = plates.map(placa => {
+          const servicosDoVeiculo = servicos.filter(s => s.placa_veiculo === placa);
+          const despesasDoVeiculo = despesas.filter(d => d.placa_veiculo === placa);
+          const faturamento = servicosDoVeiculo.filter(s => s.status !== 'Cancelado').reduce((acc, s) => acc + s.valor_bruto, 0);
+          const totalDespesas = despesasDoVeiculo.reduce((acc, d) => acc + d.valor_total, 0);
+          return {
+              placa,
+              servicos: servicosDoVeiculo,
+              despesas: despesasDoVeiculo,
+              faturamento,
+              totalDespesas,
+              saldo: faturamento - totalDespesas
+          };
+      });
+
+      // Cálculos gerais
+      const faturamentoBruto = dataByVehicle.reduce((acc, v) => acc + v.faturamento, 0);
+      const totalDespesasGeral = dataByVehicle.reduce((acc, v) => acc + v.totalDespesas, 0);
       const comissaoMauri = faturamentoBruto * 0.01;
-      const saldo = faturamentoBruto - totalDespesas - comissaoMauri; // Cálculo do Saldo Corrigido
+      const saldoGeral = faturamentoBruto - totalDespesasGeral - comissaoMauri;
 
       const [year, monthStr] = selectedMonth.split('-');
       const period = format(new Date(Number(year), Number(monthStr) - 1), 'MMMM_yyyy', { locale: ptBR });
       const fileName = `Relatorio_Mensal_${period}`;
 
-      const reportPayload = { servicos, despesas, faturamentoBruto, totalDespesas, saldo, comissaoMauri };
+      const reportPayload = { servicos, despesas, dataByVehicle, faturamentoBruto, totalDespesasGeral, saldoGeral, comissaoMauri };
 
       if (formatType === 'excel') {
         generateExcel(fileName, reportPayload);
@@ -96,21 +114,23 @@ const Relatorios = () => {
   };
 
   type ReportPayload = {
-    servicos: Servico[],
-    despesas: Despesa[],
-    faturamentoBruto: number,
-    totalDespesas: number,
-    saldo: number,
-    comissaoMauri: number
+    servicos: Servico[], despesas: Despesa[], dataByVehicle: any[], faturamentoBruto: number, totalDespesasGeral: number, saldoGeral: number, comissaoMauri: number
   };
 
   const generateExcel = (fileName: string, data: ReportPayload) => {
       const summaryData = [
         { "Item": "Faturamento Bruto", "Valor": data.faturamentoBruto },
-        { "Item": "Total de Despesas", "Valor": data.totalDespesas },
+        { "Item": "Total de Despesas", "Valor": data.totalDespesasGeral },
         { "Item": "Comissão Mauri (1%)", "Valor": data.comissaoMauri },
-        { "Item": "Saldo Líquido", "Valor": data.saldo },
+        { "Item": "Saldo Líquido", "Valor": data.saldoGeral },
       ];
+
+      const vehicleSummaryData = data.dataByVehicle.map(v => ({
+        "Veículo": v.placa,
+        "Faturamento": v.faturamento,
+        "Despesas": v.totalDespesas,
+        "Saldo": v.saldo
+      }));
       
       const servicosData = data.servicos.map(s => ({
         "Data": format(new Date(s.data + 'T00:00:00'), 'dd/MM/yyyy'), "Cliente": s.cliente, "Veículo": s.placa_veiculo, "Status": s.status, "Valor Bruto": s.valor_bruto
@@ -122,16 +142,19 @@ const Relatorios = () => {
 
       const wb = XLSX.utils.book_new();
       const wsSummary = XLSX.utils.json_to_sheet(summaryData);
+      const wsVehicleSummary = XLSX.utils.json_to_sheet(vehicleSummaryData);
       const wsServicos = XLSX.utils.json_to_sheet(servicosData);
       const wsDespesas = XLSX.utils.json_to_sheet(despesasData);
 
       wsSummary['!cols'] = [{ wch: 20 }, { wch: 15 }];
+      wsVehicleSummary['!cols'] = [{ wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 15 }];
       wsServicos['!cols'] = [{ wch: 12 }, { wch: 30 }, { wch: 15 }, { wch: 15 }, { wch: 15 }];
       wsDespesas['!cols'] = [{ wch: 12 }, { wch: 15 }, { wch: 25 }, { wch: 30 }, { wch: 15 }];
 
-      XLSX.utils.book_append_sheet(wb, wsSummary, "Resumo");
-      XLSX.utils.book_append_sheet(wb, wsServicos, "Serviços");
-      XLSX.utils.book_append_sheet(wb, wsDespesas, "Despesas");
+      XLSX.utils.book_append_sheet(wb, wsSummary, "Resumo Geral");
+      XLSX.utils.book_append_sheet(wb, wsVehicleSummary, "Resumo por Veículo");
+      XLSX.utils.book_append_sheet(wb, wsServicos, "Serviços (Todos)");
+      XLSX.utils.book_append_sheet(wb, wsDespesas, "Despesas (Todas)");
 
       XLSX.writeFile(wb, `${fileName}.xlsx`);
   };
@@ -143,46 +166,66 @@ const Relatorios = () => {
       const title = `Relatório Mensal - ${monthName.charAt(0).toUpperCase() + monthName.slice(1)} de ${year}`;
       let finalY = 0;
 
-      // Cabeçalho
+      // Cabeçalho Geral
       doc.setFontSize(18);
       doc.text(title, 14, 22);
-
-      // Resumo
+      
+      // Resumo Geral
       doc.setFontSize(11);
       doc.setTextColor(100);
       const summaryYStart = 32;
-      doc.text(`Faturamento Bruto: ${formatCurrency(data.faturamentoBruto)}`, 14, summaryYStart);
-      doc.text(`Total de Despesas: ${formatCurrency(data.totalDespesas)}`, 14, summaryYStart + 6);
+      doc.text(`Faturamento Bruto Total: ${formatCurrency(data.faturamentoBruto)}`, 14, summaryYStart);
+      doc.text(`Total de Despesas: ${formatCurrency(data.totalDespesasGeral)}`, 14, summaryYStart + 6);
       doc.text(`Comissão Mauri (1%): ${formatCurrency(data.comissaoMauri)}`, 14, summaryYStart + 12);
       doc.setFontSize(12);
-      doc.text(`Saldo Líquido: ${formatCurrency(data.saldo)}`, 14, summaryYStart + 20);
-      finalY = summaryYStart + 30;
+      doc.text(`Saldo Líquido Total: ${formatCurrency(data.saldoGeral)}`, 14, summaryYStart + 20);
+      finalY = summaryYStart + 25;
 
-      // Tabela de Serviços
-      doc.setFontSize(14);
-      doc.setTextColor(40);
-      doc.text("Serviços Realizados no Mês", 14, finalY);
-      autoTable(doc, {
-          startY: finalY + 5,
-          head: [['Data', 'Cliente', 'Veículo', 'Status', 'Valor Bruto']],
-          body: data.servicos.map(s => [
-              format(new Date(s.data + 'T00:00:00'), 'dd/MM/yyyy'), s.cliente, s.placa_veiculo, s.status, formatCurrency(s.valor_bruto)
-          ]),
-          headStyles: { fillColor: '#10523C' }
-      });
-      finalY = (doc as any).lastAutoTable.finalY;
+      // Loop por veículo
+      data.dataByVehicle.forEach(vehicleData => {
+          finalY += 15; // Espaço antes de cada veículo
+          
+          // Subtítulo do Veículo
+          doc.setFontSize(16);
+          doc.setTextColor(0);
+          doc.text(`Veículo: ${vehicleData.placa}`, 14, finalY);
+          
+          // Resumo do Veículo
+          doc.setFontSize(10);
+          doc.setTextColor(100);
+          finalY += 7;
+          doc.text(`Faturamento: ${formatCurrency(vehicleData.faturamento)}`, 16, finalY);
+          doc.text(`Despesas: ${formatCurrency(vehicleData.totalDespesas)}`, 70, finalY);
+          doc.text(`Saldo: ${formatCurrency(vehicleData.saldo)}`, 120, finalY);
+          finalY += 5;
 
-      // Tabela de Despesas
-      doc.setFontSize(14);
-      doc.setTextColor(40);
-      doc.text("Despesas do Mês", 14, finalY + 15);
-      autoTable(doc, {
-          startY: finalY + 20,
-          head: [['Data', 'Veículo', 'Fornecedor', 'Descrição', 'Valor']],
-          body: data.despesas.map(d => [
-              format(new Date(d.data + 'T00:00:00'), 'dd/MM/yyyy'), d.placa_veiculo, d.fornecedor, d.descricao, formatCurrency(d.valor_total)
-          ]),
-          headStyles: { fillColor: '#10523C' }
+          // Tabela de Serviços do Veículo
+          if(vehicleData.servicos.length > 0) {
+              autoTable(doc, {
+                  startY: finalY,
+                  head: [['Data', 'Cliente', 'Status', 'Valor Bruto']],
+                  body: vehicleData.servicos.map((s: Servico) => [
+                      format(new Date(s.data + 'T00:00:00'), 'dd/MM/yyyy'), s.cliente, s.status, formatCurrency(s.valor_bruto)
+                  ]),
+                  headStyles: { fillColor: '#10523C' },
+                  theme: 'grid'
+              });
+              finalY = (doc as any).lastAutoTable.finalY;
+          }
+
+          // Tabela de Despesas do Veículo
+          if(vehicleData.despesas.length > 0) {
+              autoTable(doc, {
+                  startY: finalY + 2,
+                  head: [['Data', 'Fornecedor', 'Descrição', 'Valor']],
+                  body: vehicleData.despesas.map((d: Despesa) => [
+                      format(new Date(d.data + 'T00:00:00'), 'dd/MM/yyyy'), d.fornecedor, d.descricao, formatCurrency(d.valor_total)
+                  ]),
+                  headStyles: { fillColor: '#4A5568' },
+                  theme: 'grid'
+              });
+              finalY = (doc as any).lastAutoTable.finalY;
+          }
       });
       
       doc.save(`${fileName}.pdf`);
