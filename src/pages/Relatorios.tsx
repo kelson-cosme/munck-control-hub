@@ -73,16 +73,19 @@ const Relatorios = () => {
 
       const faturamentoBruto = servicos.filter(s => s.status !== 'Cancelado').reduce((acc, s) => acc + s.valor_bruto, 0);
       const totalDespesas = despesas.reduce((acc, d) => acc + d.valor_total, 0);
-      const saldo = faturamentoBruto - totalDespesas;
+      const comissaoMauri = faturamentoBruto * 0.01;
+      const saldo = faturamentoBruto - totalDespesas - comissaoMauri; // Cálculo do Saldo Corrigido
 
       const [year, monthStr] = selectedMonth.split('-');
       const period = format(new Date(Number(year), Number(monthStr) - 1), 'MMMM_yyyy', { locale: ptBR });
       const fileName = `Relatorio_Mensal_${period}`;
 
+      const reportPayload = { servicos, despesas, faturamentoBruto, totalDespesas, saldo, comissaoMauri };
+
       if (formatType === 'excel') {
-        generateExcel(fileName, { servicos, despesas, faturamentoBruto, totalDespesas, saldo });
+        generateExcel(fileName, reportPayload);
       } else {
-        generatePdf(fileName, { servicos, despesas, faturamentoBruto, totalDespesas, saldo });
+        generatePdf(fileName, reportPayload);
       }
     } catch (error) {
       console.error(`Erro ao gerar relatório ${formatType}:`, error);
@@ -92,11 +95,21 @@ const Relatorios = () => {
     }
   };
 
-  const generateExcel = (fileName: string, data: { servicos: Servico[], despesas: Despesa[], faturamentoBruto: number, totalDespesas: number, saldo: number }) => {
+  type ReportPayload = {
+    servicos: Servico[],
+    despesas: Despesa[],
+    faturamentoBruto: number,
+    totalDespesas: number,
+    saldo: number,
+    comissaoMauri: number
+  };
+
+  const generateExcel = (fileName: string, data: ReportPayload) => {
       const summaryData = [
         { "Item": "Faturamento Bruto", "Valor": data.faturamentoBruto },
         { "Item": "Total de Despesas", "Valor": data.totalDespesas },
-        { "Item": "Saldo", "Valor": data.saldo },
+        { "Item": "Comissão Mauri (1%)", "Valor": data.comissaoMauri },
+        { "Item": "Saldo Líquido", "Valor": data.saldo },
       ];
       
       const servicosData = data.servicos.map(s => ({
@@ -123,32 +136,48 @@ const Relatorios = () => {
       XLSX.writeFile(wb, `${fileName}.xlsx`);
   };
 
-  const generatePdf = (fileName: string, data: { servicos: Servico[], despesas: Despesa[], faturamentoBruto: number, totalDespesas: number, saldo: number }) => {
+  const generatePdf = (fileName: string, data: ReportPayload) => {
       const doc = new jsPDF();
       const [year, monthStr] = selectedMonth.split('-');
       const monthName = format(new Date(Number(year), Number(monthStr) - 1), 'MMMM', { locale: ptBR });
       const title = `Relatório Mensal - ${monthName.charAt(0).toUpperCase() + monthName.slice(1)} de ${year}`;
+      let finalY = 0;
 
+      // Cabeçalho
       doc.setFontSize(18);
       doc.text(title, 14, 22);
 
+      // Resumo
       doc.setFontSize(11);
       doc.setTextColor(100);
-      doc.text(`Faturamento Bruto: ${formatCurrency(data.faturamentoBruto)}`, 14, 32);
-      doc.text(`Total de Despesas: ${formatCurrency(data.totalDespesas)}`, 14, 38);
-      doc.text(`Saldo: ${formatCurrency(data.saldo)}`, 14, 44);
+      const summaryYStart = 32;
+      doc.text(`Faturamento Bruto: ${formatCurrency(data.faturamentoBruto)}`, 14, summaryYStart);
+      doc.text(`Total de Despesas: ${formatCurrency(data.totalDespesas)}`, 14, summaryYStart + 6);
+      doc.text(`Comissão Mauri (1%): ${formatCurrency(data.comissaoMauri)}`, 14, summaryYStart + 12);
+      doc.setFontSize(12);
+      doc.text(`Saldo Líquido: ${formatCurrency(data.saldo)}`, 14, summaryYStart + 20);
+      finalY = summaryYStart + 30;
 
+      // Tabela de Serviços
+      doc.setFontSize(14);
+      doc.setTextColor(40);
+      doc.text("Serviços Realizados no Mês", 14, finalY);
       autoTable(doc, {
-          startY: 55,
+          startY: finalY + 5,
           head: [['Data', 'Cliente', 'Veículo', 'Status', 'Valor Bruto']],
           body: data.servicos.map(s => [
               format(new Date(s.data + 'T00:00:00'), 'dd/MM/yyyy'), s.cliente, s.placa_veiculo, s.status, formatCurrency(s.valor_bruto)
           ]),
           headStyles: { fillColor: '#10523C' }
       });
+      finalY = (doc as any).lastAutoTable.finalY;
 
+      // Tabela de Despesas
+      doc.setFontSize(14);
+      doc.setTextColor(40);
+      doc.text("Despesas do Mês", 14, finalY + 15);
       autoTable(doc, {
-          startY: (doc as any).lastAutoTable.finalY + 10,
+          startY: finalY + 20,
           head: [['Data', 'Veículo', 'Fornecedor', 'Descrição', 'Valor']],
           body: data.despesas.map(d => [
               format(new Date(d.data + 'T00:00:00'), 'dd/MM/yyyy'), d.placa_veiculo, d.fornecedor, d.descricao, formatCurrency(d.valor_total)
