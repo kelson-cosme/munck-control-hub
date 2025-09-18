@@ -86,6 +86,10 @@ const Dashboard = () => {
     const [selectedMonth, setSelectedMonth] = useState<string>('all');
     const [monthOptions, setMonthOptions] = useState<{ value: string; label: string; }[]>([]);
 
+    // Novos estados para o filtro de veículo
+    const [selectedVehicle, setSelectedVehicle] = useState<string>('all');
+    const [vehicleOptions, setVehicleOptions] = useState<{ value: string; label: string; }[]>([]);
+
     useEffect(() => {
         const fetchDataAndCalculate = async () => {
             setLoading(true);
@@ -108,6 +112,7 @@ const Dashboard = () => {
             const allDespesas: Despesa[] = despesasResponse.data || [];
             const allVeiculos: Veiculo[] = veiculosResponse.data || [];
 
+            // Popula as opções de meses
             const dates = [...allServicos.map(s => s.data), ...allDespesas.map(d => d.data)];
             const uniqueMonths = [...new Set(dates.map(d => format(parseISO(d), 'yyyy-MM')))];
             const options = uniqueMonths.sort().reverse().map(monthStr => ({
@@ -116,6 +121,11 @@ const Dashboard = () => {
             }));
             setMonthOptions(options);
 
+            // Popula as opções de veículos
+            const vehicleOpts = allVeiculos.map(v => ({ value: v.placa, label: v.placa }));
+            setVehicleOptions(vehicleOpts);
+
+            // Filtra por mês
             const servicos = selectedMonth === 'all' 
                 ? allServicos 
                 : allServicos.filter(s => s.data && s.data.startsWith(selectedMonth));
@@ -124,6 +134,7 @@ const Dashboard = () => {
                 ? allDespesas
                 : allDespesas.filter(d => d.data && d.data.startsWith(selectedMonth));
 
+            // Cálculos do resumo
             const totalRecebido = servicos
                 .filter(s => s.status === 'Pago')
                 .reduce((acc, s) => acc + s.valor_bruto, 0);
@@ -141,7 +152,7 @@ const Dashboard = () => {
                 valorLiquido: totalRecebido - despesasTotal
             });
 
-            // Calcula o resumo por veículo
+            // Resumo por veículo
             const resumoVeiculos = allVeiculos.map(veiculo => {
                 const totalAReceberVeiculo = servicos
                     .filter(s => s.placa_veiculo === veiculo.placa && (s.status === 'Pendente' || s.status === 'Vencido'))
@@ -156,14 +167,23 @@ const Dashboard = () => {
                     totalAReceber: totalAReceberVeiculo,
                     despesas: despesasVeiculo
                 };
-            }).filter(v => v.totalAReceber > 0 || v.despesas > 0); // Mostra apenas veículos com valores
+            }).filter(v => v.totalAReceber > 0 || v.despesas > 0);
             setResumoPorVeiculo(resumoVeiculos);
-
-            const pendentes = servicos
-                .filter(s => s.status === 'Pendente' || s.status === 'Vencido')
+            
+            // Filtra serviços pendentes por mês E por veículo selecionado
+            const pendentesGeral = allServicos
+                .filter(s => s.status === 'Pendente' || s.status === 'Vencido');
+                
+            const pendentesFiltrados = pendentesGeral
+                .filter(s => 
+                    (selectedMonth === 'all' || (s.data && s.data.startsWith(selectedMonth))) &&
+                    (selectedVehicle === 'all' || s.placa_veiculo === selectedVehicle)
+                )
                 .sort((a, b) => new Date(a.vencimento).getTime() - new Date(b.vencimento).getTime());
-            setServicosPendentes(pendentes);
 
+            setServicosPendentes(pendentesFiltrados);
+
+            // Previsão de recebimento baseada nos pendentes GERAIS (sem filtro de mês/veículo)
             const today = new Date();
             const periodos = [
                 { label: 'Próximos 7 dias', start: today, end: addDays(today, 7) },
@@ -172,7 +192,7 @@ const Dashboard = () => {
             ];
             
             const previsao = periodos.map(p => {
-                const valor = pendentes
+                const valor = pendentesGeral
                     .filter(s => {
                         const vencimentoDate = parseDateStringAsLocal(s.vencimento);
                         return vencimentoDate && isWithinInterval(vencimentoDate, { start: p.start, end: p.end });
@@ -182,12 +202,12 @@ const Dashboard = () => {
             });
             setPrevisaoRecebimento(previsao);
 
-            // Previsão por Veículo
-            const veiculosComPendencias = [...new Set(pendentes.map(s => s.placa_veiculo))];
+            // Previsão por Veículo baseada nos pendentes GERAIS
+            const veiculosComPendencias = [...new Set(pendentesGeral.map(s => s.placa_veiculo))];
             const previsaoVeiculos: Record<string, {periodo: string, valor: number}[]> = {};
 
             veiculosComPendencias.forEach(placa => {
-                const servicosDoVeiculo = pendentes.filter(s => s.placa_veiculo === placa);
+                const servicosDoVeiculo = pendentesGeral.filter(s => s.placa_veiculo === placa);
                 previsaoVeiculos[placa] = periodos.map(p => {
                     const valor = servicosDoVeiculo
                         .filter(s => {
@@ -205,7 +225,7 @@ const Dashboard = () => {
         };
 
         fetchDataAndCalculate();
-    }, [selectedMonth]);
+    }, [selectedMonth, selectedVehicle]); // Adiciona selectedVehicle às dependências
 
     const summaryLabel = selectedMonth === 'all' ? '(Geral)' : `(${format(parseISO(`${selectedMonth}-01`), "MMM/yy", { locale: ptBR })})`;
 
@@ -297,7 +317,7 @@ const Dashboard = () => {
           <CardHeader>
             <CardTitle className="text-lg flex items-center gap-2">
               <TrendingUp className="h-5 w-5" />
-              Previsão de Recebimento {summaryLabel}
+              Previsão de Recebimento (Geral)
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -339,10 +359,25 @@ const Dashboard = () => {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg flex items-center gap-2">
-            <FileText className="h-5 w-5" />
-            Serviços Pendentes de Pagamento {summaryLabel}
-          </CardTitle>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
+                <CardTitle className="text-lg flex items-center gap-2 mb-2 sm:mb-0">
+                    <FileText className="h-5 w-5" />
+                    Serviços Pendentes de Pagamento {summaryLabel}
+                </CardTitle>
+                <Select value={selectedVehicle} onValueChange={setSelectedVehicle}>
+                    <SelectTrigger className="w-full sm:w-[220px]">
+                        <SelectValue placeholder="Filtrar por veículo" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="all">Todos os Veículos</SelectItem>
+                        {vehicleOptions.map(option => (
+                            <SelectItem key={option.value} value={option.value}>
+                                {option.label}
+                            </SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
+            </div>
         </CardHeader>
         <CardContent>
           <Table>
@@ -356,7 +391,7 @@ const Dashboard = () => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {servicosPendentes.slice(0, 5).map((servico) => {
+              {servicosPendentes.map((servico) => {
                 const vencimentoDate = parseDateStringAsLocal(servico.vencimento);
                 return (
                     <TableRow key={servico.id}>
@@ -370,6 +405,13 @@ const Dashboard = () => {
                     </TableRow>
                 );
               })}
+              {servicosPendentes.length === 0 && (
+                <TableRow>
+                    <TableCell colSpan={5} className="text-center text-muted-foreground">
+                        Nenhum serviço pendente encontrado para os filtros selecionados.
+                    </TableCell>
+                </TableRow>
+              )}
             </TableBody>
           </Table>
         </CardContent>
