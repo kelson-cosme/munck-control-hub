@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 const menuItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Veículos", url: "/veiculos", icon: Truck },
-  { title: "Motoristas", url: "/motoristas", icon: Users },
+  // { title: "Motoristas", url: "/motoristas", icon: Users },
   { title: "Relatórios", url: "/relatorios", icon: FileText },
 ];
 
