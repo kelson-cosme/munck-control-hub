@@ -23,6 +23,8 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogTrigger,
+  DialogClose,
 } from "@/components/ui/dialog";
 import {
   AlertDialog,
@@ -118,7 +120,6 @@ const VeiculoDetalhes = () => {
   const [error, setError] = useState<string | null>(null);
   const [editingCell, setEditingCell] = useState<{ table: 'servicos' | 'despesas'; rowIndex: number; columnId: string } | null>(null);
   const [date, setDate] = useState<DateRange | undefined>(undefined);
-  const [highlightedRow, setHighlightedRow] = useState<{ table: string; index: number } | null>(null);
   
   const [servicosSortConfig, setServicosSortConfig] = useState<{ key: SortKey; direction: SortDirection } | null>({ key: 'data', direction: 'desc' });
   const [despesasSortConfig, setDespesasSortConfig] = useState<{ key: SortKey; direction: SortDirection } | null>({ key: 'data', direction: 'desc' });
@@ -130,10 +131,12 @@ const VeiculoDetalhes = () => {
   const [selectedService, setSelectedService] = useState<Partial<Servico> | null>(null);
   const [numInstallments, setNumInstallments] = useState(2);
 
+  // Estados para o novo Dialog de Adição
+  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+  const [addDialogType, setAddDialogType] = useState<'servicos' | 'despesas' | null>(null);
+  const [newItem, setNewItem] = useState<Partial<Servico> | Partial<Despesa>>({});
 
-  const servicosContentRef = useRef<HTMLDivElement>(null);
-  const despesasContentRef = useRef<HTMLDivElement>(null);
-  
+
   const fetchDetails = async () => {
     if (!placa) return;
     setLoading(true);
@@ -239,17 +242,8 @@ const VeiculoDetalhes = () => {
     const updatedValue = value instanceof Date ? format(value, 'yyyy-MM-dd') : value;
     
     if (!recordToUpdate.id) {
-      const recordToInsert = { ...recordToUpdate, [columnId]: updatedValue, placa_veiculo: placa };
-      setRecordListState(prev => prev.map(item => item === recordToUpdate ? recordToInsert : item));
-
-      const { data, error } = await supabase.from(table).insert(recordToInsert).select().single();
-      if (error) {
-        console.error(`Erro ao inserir ${table}:`, error);
-        setError(`Falha ao salvar. Por favor, tente novamente.`);
-        setRecordListState(prev => prev.filter(item => item !== recordToInsert));
-      } else {
-        setRecordListState(prev => prev.map(item => item === recordToInsert ? data : item));
-      }
+        // Lógica de inserção movida para handleAddNewItem
+        console.warn("Tentativa de salvar uma nova linha através do handleSave. Use handleAddNewItem.");
     } else {
       setRecordListState(prev => prev.map(item => item.id === recordToUpdate.id ? { ...item, [columnId]: updatedValue } : item));
       const { error } = await supabase.from(table).update({ [columnId]: updatedValue }).eq('id', recordToUpdate.id);
@@ -259,33 +253,48 @@ const VeiculoDetalhes = () => {
       }
     }
   };
-  
-  const handleAddRow = (table: 'servicos' | 'despesas') => {
+
+  const openAddDialog = (type: 'servicos' | 'despesas') => {
     const today = format(new Date(), 'yyyy-MM-dd');
-    if (table === 'servicos') {
-        const newServico: Partial<Servico> = { data: today, os: '', cliente: '', operador: '', n_fiscal: '', boleto: '', vencimento: today, valor_bruto: 0, data_pagamento: null, status: 'Pendente' };
-        setServicos(prev => {
-            const newIndex = prev.length;
-            setTimeout(() => {
-                servicosContentRef.current?.scrollTo({ top: servicosContentRef.current.scrollHeight, behavior: 'smooth' });
-                setHighlightedRow({ table: 'servicos', index: newIndex });
-                setTimeout(() => setHighlightedRow(null), 3000);
-                setEditingCell({ table: 'servicos', rowIndex: newIndex, columnId: 'data' });
-            }, 100);
-            return [...prev, newServico];
+    setAddDialogType(type);
+    if (type === 'servicos') {
+        setNewItem({
+            data: today, os: '', cliente: '', operador: '', n_fiscal: '', boleto: '', 
+            vencimento: today, valor_bruto: 0, data_pagamento: null, status: 'Pendente' 
         });
     } else {
-        const newDespesa: Partial<Despesa> = { data: today, fornecedor: '', descricao: '', vencimento: today, valor_total: 0 };
-        setDespesas(prev => {
-            const newIndex = prev.length;
-            setTimeout(() => {
-                despesasContentRef.current?.scrollTo({ top: despesasContentRef.current.scrollHeight, behavior: 'smooth' });
-                setHighlightedRow({ table: 'despesas', index: newIndex });
-                setTimeout(() => setHighlightedRow(null), 3000);
-                setEditingCell({ table: 'despesas', rowIndex: newIndex, columnId: 'data' });
-            }, 100);
-            return [...prev, newDespesa];
+        setNewItem({ 
+            data: today, fornecedor: '', descricao: '', vencimento: today, valor_total: 0 
         });
+    }
+    setIsAddDialogOpen(true);
+  };
+  
+  const handleAddNewItem = async () => {
+    if (!addDialogType || !newItem) return;
+
+    const dataToInsert = { ...newItem, placa_veiculo: placa };
+  
+    // Formata datas para o formato yyyy-MM-dd antes de inserir
+    if ('data' in dataToInsert && dataToInsert.data instanceof Date) {
+        dataToInsert.data = format(dataToInsert.data, 'yyyy-MM-dd');
+    }
+    if ('vencimento' in dataToInsert && dataToInsert.vencimento instanceof Date) {
+        dataToInsert.vencimento = format(dataToInsert.vencimento, 'yyyy-MM-dd');
+    }
+    if ('data_pagamento' in dataToInsert && dataToInsert.data_pagamento instanceof Date) {
+        dataToInsert.data_pagamento = format(dataToInsert.data_pagamento, 'yyyy-MM-dd');
+    }
+
+    const { error } = await supabase.from(addDialogType).insert(dataToInsert);
+  
+    if (error) {
+      console.error(`Erro ao adicionar ${addDialogType}:`, error);
+      setError("Falha ao adicionar novo item. Verifique os dados e tente novamente.");
+    } else {
+      setIsAddDialogOpen(false);
+      setNewItem({});
+      fetchDetails(); // Recarrega os dados para mostrar o novo item
     }
   };
 
@@ -415,11 +424,11 @@ const VeiculoDetalhes = () => {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>Serviços Realizados</CardTitle>
-            <Button size="sm" onClick={() => handleAddRow('servicos')}>
+            <Button size="sm" onClick={() => openAddDialog('servicos')}>
               <Plus className="h-4 w-4 mr-2" /> Adicionar Serviço
             </Button>
           </CardHeader>
-          <CardContent className="overflow-auto max-h-[60vh]" ref={servicosContentRef}>
+          <CardContent className="overflow-auto max-h-[60vh]">
             <Table>
               <TableHeader>
                 <TableRow className="bg-card hover:bg-card">
@@ -441,8 +450,6 @@ const VeiculoDetalhes = () => {
                   <TableRow 
                     key={servico.id || `new-${rowIndex}`}
                     className={cn(
-                        "transition-colors duration-1000",
-                        highlightedRow?.table === 'servicos' && highlightedRow?.index === servicos.findIndex(s => s === servico) ? 'bg-green-100' : '',
                         servico.os && /\(\d+\/\d+\)/.test(servico.os) ? 'bg-blue-50 hover:bg-blue-100' : ''
                     )}
                   >
@@ -492,11 +499,11 @@ const VeiculoDetalhes = () => {
         <Card>
         <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>Manutenção / Despesas</CardTitle>
-            <Button size="sm" onClick={() => handleAddRow('despesas')}>
+            <Button size="sm" onClick={() => openAddDialog('despesas')}>
               <Plus className="h-4 w-4 mr-2" /> Adicionar Despesa
             </Button>
           </CardHeader>
-          <CardContent className="overflow-auto max-h-[60vh]" ref={despesasContentRef}>
+          <CardContent className="overflow-auto max-h-[60vh]">
             <Table>
               <TableHeader>
                 <TableRow className="bg-card hover:bg-card">
@@ -510,10 +517,7 @@ const VeiculoDetalhes = () => {
               </TableHeader>
               <TableBody>
                  {sortedAndFilteredDespesas.map((despesa, rowIndex) => (
-                  <TableRow 
-                    key={despesa.id || `new-${rowIndex}`}
-                    className={cn( "transition-colors duration-1000", highlightedRow?.table === 'despesas' && highlightedRow?.index === despesas.findIndex(d => d === despesa) ? 'bg-green-100' : '' )}
-                  >
+                  <TableRow key={despesa.id || `new-${rowIndex}`}>
                     <TableCell><EditableCell type="date" value={despesa.data} isEditing={editingCell?.table === 'despesas' && editingCell.rowIndex === rowIndex && editingCell.columnId === 'data'} onToggleEditing={(isEditing) => setEditingCell(isEditing ? { table: 'despesas', rowIndex, columnId: 'data' } : null)} onSave={(value) => handleSave('despesas', rowIndex, 'data', value)}/></TableCell>
                     <TableCell><EditableCell type="text" value={despesa.fornecedor} isEditing={editingCell?.table === 'despesas' && editingCell.rowIndex === rowIndex && editingCell.columnId === 'fornecedor'} onToggleEditing={(isEditing) => setEditingCell(isEditing ? { table: 'despesas', rowIndex, columnId: 'fornecedor' } : null)} onSave={(value) => handleSave('despesas', rowIndex, 'fornecedor', value)}/></TableCell>
                     <TableCell><EditableCell type="text" value={despesa.descricao} isEditing={editingCell?.table === 'despesas' && editingCell.rowIndex === rowIndex && editingCell.columnId === 'descricao'} onToggleEditing={(isEditing) => setEditingCell(isEditing ? { table: 'despesas', rowIndex, columnId: 'descricao' } : null)} onSave={(value) => handleSave('despesas', rowIndex, 'descricao', value)}/></TableCell>
@@ -549,6 +553,97 @@ const VeiculoDetalhes = () => {
           </CardContent>
         </Card>
       </div>
+
+      {/* Dialog para Adicionar Serviço/Despesa */}
+      <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+        <DialogContent className="sm:max-w-[600px]">
+          <DialogHeader>
+            <DialogTitle>
+                Adicionar Novo {addDialogType === 'servicos' ? 'Serviço' : 'Despesa'}
+            </DialogTitle>
+            <DialogDescription>
+                Preencha os campos abaixo para adicionar um novo item.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4 max-h-[70vh] overflow-y-auto pr-6">
+            {addDialogType === 'servicos' && (
+                <>
+                    <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="data" className="text-right">Data</Label>
+                        <Input id="data" type="date" value={(newItem as Partial<Servico>).data || ''} onChange={(e) => setNewItem(prev => ({ ...prev, data: e.target.value }))} className="col-span-3"/>
+                    </div>
+                    <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="os" className="text-right">O.S</Label>
+                        <Input id="os" value={(newItem as Partial<Servico>).os || ''} onChange={(e) => setNewItem(prev => ({ ...prev, os: e.target.value }))} className="col-span-3"/>
+                    </div>
+                    <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="cliente" className="text-right">Cliente</Label>
+                        <Input id="cliente" value={(newItem as Partial<Servico>).cliente || ''} onChange={(e) => setNewItem(prev => ({ ...prev, cliente: e.target.value }))} className="col-span-3"/>
+                    </div>
+                    <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="operador" className="text-right">Operador</Label>
+                        <Input id="operador" value={(newItem as Partial<Servico>).operador || ''} onChange={(e) => setNewItem(prev => ({ ...prev, operador: e.target.value }))} className="col-span-3"/>
+                    </div>
+                    <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="n_fiscal" className="text-right">N° Fiscal</Label>
+                        <Input id="n_fiscal" value={(newItem as Partial<Servico>).n_fiscal || ''} onChange={(e) => setNewItem(prev => ({ ...prev, n_fiscal: e.target.value }))} className="col-span-3"/>
+                    </div>
+                    <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="boleto" className="text-right">Boleto</Label>
+                        <Input id="boleto" value={(newItem as Partial<Servico>).boleto || ''} onChange={(e) => setNewItem(prev => ({ ...prev, boleto: e.target.value }))} className="col-span-3"/>
+                    </div>
+                    <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="vencimento" className="text-right">Vencimento</Label>
+                        <Input id="vencimento" type="date" value={(newItem as Partial<Servico>).vencimento || ''} onChange={(e) => setNewItem(prev => ({ ...prev, vencimento: e.target.value }))} className="col-span-3"/>
+                    </div>
+                    <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="valor_bruto" className="text-right">Valor Bruto</Label>
+                        <Input id="valor_bruto" type="number" value={(newItem as Partial<Servico>).valor_bruto || ''} onChange={(e) => setNewItem(prev => ({ ...prev, valor_bruto: parseFloat(e.target.value) || 0 }))} className="col-span-3"/>
+                    </div>
+                    <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="data_pagamento" className="text-right">Data Pagto.</Label>
+                        <Input id="data_pagamento" type="date" value={(newItem as Partial<Servico>).data_pagamento || ''} onChange={(e) => setNewItem(prev => ({ ...prev, data_pagamento: e.target.value }))} className="col-span-3"/>
+                    </div>
+                    <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="status" className="text-right">Status</Label>
+                        <Select value={(newItem as Partial<Servico>).status} onValueChange={(value) => setNewItem(prev => ({...prev, status: value as Servico['status']}))}>
+                            <SelectTrigger className="col-span-3"><SelectValue placeholder="Selecione..." /></SelectTrigger>
+                            <SelectContent>{statusOptions.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}</SelectContent>
+                        </Select>
+                    </div>
+                </>
+            )}
+            {addDialogType === 'despesas' && (
+                <>
+                    <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="data" className="text-right">Data</Label>
+                        <Input id="data" type="date" value={(newItem as Partial<Despesa>).data || ''} onChange={(e) => setNewItem(prev => ({ ...prev, data: e.target.value }))} className="col-span-3"/>
+                    </div>
+                    <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="fornecedor" className="text-right">Fornecedor</Label>
+                        <Input id="fornecedor" value={(newItem as Partial<Despesa>).fornecedor || ''} onChange={(e) => setNewItem(prev => ({ ...prev, fornecedor: e.target.value }))} className="col-span-3"/>
+                    </div>
+                    <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="descricao" className="text-right">Descrição</Label>
+                        <Input id="descricao" value={(newItem as Partial<Despesa>).descricao || ''} onChange={(e) => setNewItem(prev => ({ ...prev, descricao: e.target.value }))} className="col-span-3"/>
+                    </div>
+                    <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="vencimento" className="text-right">Vencimento</Label>
+                        <Input id="vencimento" type="date" value={(newItem as Partial<Despesa>).vencimento || ''} onChange={(e) => setNewItem(prev => ({ ...prev, vencimento: e.target.value }))} className="col-span-3"/>
+                    </div>
+                    <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="valor_total" className="text-right">Valor Total</Label>
+                        <Input id="valor_total" type="number" value={(newItem as Partial<Despesa>).valor_total || ''} onChange={(e) => setNewItem(prev => ({ ...prev, valor_total: parseFloat(e.target.value) || 0 }))} className="col-span-3"/>
+                    </div>
+                </>
+            )}
+          </div>
+          <DialogFooter>
+            <DialogClose asChild><Button variant="outline">Cancelar</Button></DialogClose>
+            <Button onClick={handleAddNewItem}>Salvar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       
       <Dialog open={isInstallmentDialogOpen} onOpenChange={setIsInstallmentDialogOpen}>
         <DialogContent>
