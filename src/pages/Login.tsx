@@ -39,7 +39,7 @@ const Login = () => {
             <div className="flex justify-center items-center mb-4">
                 <Truck className="h-10 w-10 text-primary" />
             </div>
-            <CardTitle className="text-2xl">Munck Control Hub</CardTitle>
+            <CardTitle className="text-2xl">Munck Control - Meta Industrial</CardTitle>
             <CardDescription>Acesse sua conta para continuar</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
