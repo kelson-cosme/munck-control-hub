@@ -1,18 +1,22 @@
-import { NavLink, useLocation } from "react-router-dom";
+// src/components/layout/Sidebar.tsx
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
   Truck,
   Users,
   FileText,
   Menu,
+  LogOut,
+  UserCircle // <--- Adicionar ícone para Perfil
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { supabase } from "@/lib/supabaseClient";
 
 const menuItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Veículos", url: "/veiculos", icon: Truck },
-  // { title: "Motoristas", url: "/motoristas", icon: Users },
+  // { title: "Motoristas", url: "/motoristas", icon: Users }, // Removido
   { title: "Relatórios", url: "/relatorios", icon: FileText },
 ];
 
@@ -23,10 +27,21 @@ interface SidebarProps {
 
 export function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
   const location = useLocation();
+  const navigate = useNavigate();
 
   const isActive = (path: string) => {
+    // Tratamento especial para evitar que '/' corresponda a tudo
     if (path === "/") return location.pathname === "/";
     return location.pathname.startsWith(path);
+  };
+
+  const handleLogout = async () => {
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+        console.error('Erro ao fazer logout:', error);
+    } else {
+        navigate('/');
+    }
   };
 
   return (
@@ -57,18 +72,49 @@ export function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
           <NavLink
             key={item.title}
             to={item.url}
+            end={item.url === "/"} // Adiciona 'end' apenas para o Dashboard
             className={cn(
               "flex items-center space-x-2 rounded px-2 py-2 text-sm mb-1",
               isActive(item.url)
                 ? "bg-primary text-primary-foreground"
                 : "hover:bg-accent"
             )}
+            title={item.title}
           >
             <item.icon className="h-4 w-4" />
             {!collapsed && <span>{item.title}</span>}
           </NavLink>
         ))}
       </nav>
+
+      {/* Ações do Utilizador (Perfil e Sair) */}
+      <div className={cn("p-2 border-t", collapsed ? "p-1" : "p-2")}>
+        {/* Link para Perfil */}
+        <NavLink
+            to="/perfil"
+            className={cn(
+              "flex items-center space-x-2 rounded px-2 py-2 text-sm mb-1 w-full justify-start",
+               isActive('/perfil') // Usa isActive para destacar se estiver na página de perfil
+                ? "bg-primary text-primary-foreground"
+                : "hover:bg-accent"
+            )}
+            title="Meu Perfil"
+          >
+            <UserCircle className="h-4 w-4" />
+            {!collapsed && <span className="ml-2">Meu Perfil</span>}
+          </NavLink>
+
+        {/* Botão Sair */}
+        <Button
+          variant="ghost"
+          className="w-full justify-start mt-1" // Adicionado mt-1 para espaço
+          onClick={handleLogout}
+          title="Sair"
+        >
+          <LogOut className="h-4 w-4" />
+          {!collapsed && <span className="ml-2">Sair</span>}
+        </Button>
+      </div>
     </div>
   );
 }
