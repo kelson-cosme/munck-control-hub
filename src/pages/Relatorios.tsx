@@ -4,21 +4,39 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { FileDown, Printer } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { format, startOfMonth, endOfMonth } from "date-fns";
+import { format, startOfMonth, endOfMonth, parseISO, differenceInDays } from "date-fns"; // Importar parseISO e differenceInDays
 import { ptBR } from 'date-fns/locale';
 import { supabase } from "@/lib/supabaseClient";
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
-// Tipagem dos dados
-type Servico = { data: string; cliente: string; placa_veiculo: string; status: string; valor_bruto: number; };
+// Tipagem dos dados ajustada para incluir NF e Boleto
+type Servico = {
+    data: string;
+    vencimento: string | null; // Adicionado Vencimento
+    cliente: string;
+    n_fiscal: string | null; // Adicionado NF
+    boleto: string | null; // Adicionado Boleto
+    placa_veiculo: string;
+    status: 'Pago' | 'Pendente' | 'Vencido' | 'Cancelado'; // Tipagem mais específica
+    valor_bruto: number;
+};
 type Despesa = { data: string; descricao: string; fornecedor: string; placa_veiculo: string; valor_total: number; };
 
 // Função para formatar valores em Reais
 const formatCurrency = (value: number) => {
     return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 };
+
+// --- CORREÇÃO DE FUSO HORÁRIO ---
+const parseDateStringAsLocal = (dateString: string | null | Date): Date | null => {
+    if (!dateString) return null;
+    if (dateString instanceof Date) return dateString;
+    // Adicionar T00:00:00 força o JS a interpretar a data no fuso horário local
+    const date = new Date(`${dateString}T00:00:00`);
+    return !isNaN(date.getTime()) ? date : null; // Verifica se a data é válida
+}
 
 const Relatorios = () => {
   const [selectedMonth, setSelectedMonth] = useState(format(new Date(), 'yyyy-MM'));
@@ -47,9 +65,10 @@ const Relatorios = () => {
     const startDate = format(startOfMonth(new Date(Number(year), Number(monthStr) - 1)), 'yyyy-MM-dd');
     const endDate = format(endOfMonth(new Date(Number(year), Number(monthStr) - 1)), 'yyyy-MM-dd');
 
+    // Seleciona as colunas necessárias, incluindo nf e boleto
     const { data: servicos, error: servicosError } = await supabase
       .from('servicos')
-      .select('data, cliente, placa_veiculo, status, valor_bruto')
+      .select('data, vencimento, cliente, n_fiscal, boleto, placa_veiculo, status, valor_bruto')
       .gte('data', startDate)
       .lte('data', endDate)
       .order('data', { ascending: true });
@@ -63,7 +82,15 @@ const Relatorios = () => {
       .order('data', { ascending: true });
     if (despesasError) throw despesasError;
 
-    return { servicos: servicos || [], despesas: despesas || [] };
+    // Supabase retorna null para campos vazios, tratamos aqui para evitar erros
+    const formattedServicos = (servicos || []).map(s => ({
+        ...s,
+        n_fiscal: s.n_fiscal ?? '', // Garante que é string
+        boleto: s.boleto ?? '',     // Garante que é string
+    }));
+
+
+    return { servicos: formattedServicos, despesas: despesas || [] };
   }
 
   const handleGenerateReport = async (formatType: 'excel' | 'pdf') => {
@@ -131,13 +158,34 @@ const Relatorios = () => {
         "Despesas": v.totalDespesas,
         "Saldo": v.saldo
       }));
-      
-      const servicosData = data.servicos.map(s => ({
-        "Data": format(new Date(s.data + 'T00:00:00'), 'dd/MM/yyyy'), "Cliente": s.cliente, "Veículo": s.placa_veiculo, "Status": s.status, "Valor Bruto": s.valor_bruto
-      }));
+
+      // --- Dados dos Serviços para Excel ---
+      const today = new Date(); // Data atual para cálculo de dias vencidos
+      const servicosData = data.servicos.map(s => {
+        const vencimentoDate = parseDateStringAsLocal(s.vencimento);
+        let diasVencidos = '';
+        if (vencimentoDate && (s.status === 'Pendente' || s.status === 'Vencido') && vencimentoDate < today) {
+            diasVencidos = differenceInDays(today, vencimentoDate).toString();
+        }
+        return {
+          "Data": s.data ? format(parseDateStringAsLocal(s.data)!, 'dd/MM/yyyy') : '',
+          "Vencimento": s.vencimento ? format(parseDateStringAsLocal(s.vencimento)!, 'dd/MM/yyyy') : '',
+          "Cliente": s.cliente,
+          "NF": s.n_fiscal || '', // Inclui NF
+          "Boleto": s.boleto || '', // Inclui Boleto
+          "Veículo": s.placa_veiculo,
+          "Status": s.status,
+          "Dias Vencidos": diasVencidos, // Inclui Dias Vencidos
+          "Valor Bruto": s.valor_bruto
+        };
+      });
 
       const despesasData = data.despesas.map(d => ({
-        "Data": format(new Date(d.data + 'T00:00:00'), 'dd/MM/yyyy'), "Veículo": d.placa_veiculo, "Fornecedor": d.fornecedor, "Descrição": d.descricao, "Valor": d.valor_total
+        "Data": d.data ? format(parseDateStringAsLocal(d.data)!, 'dd/MM/yyyy') : '',
+        "Veículo": d.placa_veiculo,
+        "Fornecedor": d.fornecedor,
+        "Descrição": d.descricao,
+        "Valor": d.valor_total
       }));
 
       const wb = XLSX.utils.book_new();
@@ -146,9 +194,14 @@ const Relatorios = () => {
       const wsServicos = XLSX.utils.json_to_sheet(servicosData);
       const wsDespesas = XLSX.utils.json_to_sheet(despesasData);
 
+      // Ajusta largura das colunas
       wsSummary['!cols'] = [{ wch: 20 }, { wch: 15 }];
       wsVehicleSummary['!cols'] = [{ wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 15 }];
-      wsServicos['!cols'] = [{ wch: 12 }, { wch: 30 }, { wch: 15 }, { wch: 15 }, { wch: 15 }];
+      // Ajusta colunas de Serviços
+      wsServicos['!cols'] = [
+          { wch: 12 }, { wch: 12 }, { wch: 30 }, { wch: 15 }, { wch: 15 },
+          { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 15 }
+      ];
       wsDespesas['!cols'] = [{ wch: 12 }, { wch: 15 }, { wch: 25 }, { wch: 30 }, { wch: 15 }];
 
       XLSX.utils.book_append_sheet(wb, wsSummary, "Resumo Geral");
@@ -160,76 +213,129 @@ const Relatorios = () => {
   };
 
   const generatePdf = (fileName: string, data: ReportPayload) => {
-      const doc = new jsPDF();
-      const [year, monthStr] = selectedMonth.split('-');
-      const monthName = format(new Date(Number(year), Number(monthStr) - 1), 'MMMM', { locale: ptBR });
-      const title = `Relatório Mensal - ${monthName.charAt(0).toUpperCase() + monthName.slice(1)} de ${year}`;
-      let finalY = 0;
+    // --- Modificação para Paisagem ---
+    const doc = new jsPDF({ orientation: 'landscape' });
+    const [year, monthStr] = selectedMonth.split('-');
+    const monthName = format(new Date(Number(year), Number(monthStr) - 1), 'MMMM', { locale: ptBR });
+    const title = `Relatório Mensal - ${monthName.charAt(0).toUpperCase() + monthName.slice(1)} de ${year}`;
+    let finalY = 0; // Controla a posição Y na página
 
-      // Cabeçalho Geral
-      doc.setFontSize(18);
-      doc.text(title, 14, 22);
-      
-      // Resumo Geral
-      doc.setFontSize(11);
-      doc.setTextColor(100);
-      const summaryYStart = 32;
-      doc.text(`Faturamento Bruto Total: ${formatCurrency(data.faturamentoBruto)}`, 14, summaryYStart);
-      doc.text(`Total de Despesas: ${formatCurrency(data.totalDespesasGeral)}`, 14, summaryYStart + 6);
-      doc.text(`Comissão Mauri (1%): ${formatCurrency(data.comissaoMauri)}`, 14, summaryYStart + 12);
-      doc.setFontSize(12);
-      doc.text(`Saldo Líquido Total: ${formatCurrency(data.saldoGeral)}`, 14, summaryYStart + 20);
-      finalY = summaryYStart + 25;
+    // Cabeçalho Geral
+    doc.setFontSize(18);
+    doc.text(title, 14, 22);
 
-      // Loop por veículo
-      data.dataByVehicle.forEach(vehicleData => {
-          finalY += 15; // Espaço antes de cada veículo
-          
-          // Subtítulo do Veículo
-          doc.setFontSize(16);
-          doc.setTextColor(0);
-          doc.text(`Veículo: ${vehicleData.placa}`, 14, finalY);
-          
-          // Resumo do Veículo
-          doc.setFontSize(10);
-          doc.setTextColor(100);
-          finalY += 7;
-          doc.text(`Faturamento: ${formatCurrency(vehicleData.faturamento)}`, 16, finalY);
-          doc.text(`Despesas: ${formatCurrency(vehicleData.totalDespesas)}`, 70, finalY);
-          doc.text(`Saldo: ${formatCurrency(vehicleData.saldo)}`, 120, finalY);
-          finalY += 5;
+    // Resumo Geral
+    doc.setFontSize(11);
+    doc.setTextColor(100);
+    const summaryYStart = 32;
+    doc.text(`Faturamento Bruto Total: ${formatCurrency(data.faturamentoBruto)}`, 14, summaryYStart);
+    doc.text(`Total de Despesas: ${formatCurrency(data.totalDespesasGeral)}`, 14, summaryYStart + 6);
+    doc.text(`Comissão Mauri (1%): ${formatCurrency(data.comissaoMauri)}`, 14, summaryYStart + 12);
+    doc.setFontSize(12);
+    doc.setTextColor(0); // Cor padrão preta para o saldo
+    doc.text(`Saldo Líquido Total: ${formatCurrency(data.saldoGeral)}`, 14, summaryYStart + 20);
+    finalY = summaryYStart + 25; // Atualiza a posição Y
 
-          // Tabela de Serviços do Veículo
-          if(vehicleData.servicos.length > 0) {
-              autoTable(doc, {
-                  startY: finalY,
-                  head: [['Data', 'Cliente', 'Status', 'Valor Bruto']],
-                  body: vehicleData.servicos.map((s: Servico) => [
-                      format(new Date(s.data + 'T00:00:00'), 'dd/MM/yyyy'), s.cliente, s.status, formatCurrency(s.valor_bruto)
-                  ]),
-                  headStyles: { fillColor: '#10523C' },
-                  theme: 'grid'
-              });
-              finalY = (doc as any).lastAutoTable.finalY;
-          }
+    // Data atual para cálculo de dias vencidos
+    const today = new Date();
 
-          // Tabela de Despesas do Veículo
-          if(vehicleData.despesas.length > 0) {
-              autoTable(doc, {
-                  startY: finalY + 2,
-                  head: [['Data', 'Fornecedor', 'Descrição', 'Valor']],
-                  body: vehicleData.despesas.map((d: Despesa) => [
-                      format(new Date(d.data + 'T00:00:00'), 'dd/MM/yyyy'), d.fornecedor, d.descricao, formatCurrency(d.valor_total)
-                  ]),
-                  headStyles: { fillColor: '#4A5568' },
-                  theme: 'grid'
-              });
-              finalY = (doc as any).lastAutoTable.finalY;
-          }
-      });
-      
-      doc.save(`${fileName}.pdf`);
-  };
+    // Loop por veículo
+    data.dataByVehicle.forEach(vehicleData => {
+        // Verifica se há espaço suficiente para o cabeçalho do veículo e pelo menos uma linha de tabela
+        // A4 Landscape height is 210mm. Use ~190mm as drawable height considering margins.
+        if (finalY > 180) {
+            doc.addPage();
+            finalY = 20; // Reseta Y para o topo da nova página com margem
+        }
+
+        finalY += 15; // Espaço antes de cada veículo
+
+        // Subtítulo do Veículo
+        doc.setFontSize(16);
+        doc.setTextColor(0);
+        doc.text(`Veículo: ${vehicleData.placa}`, 14, finalY);
+
+        // Resumo do Veículo
+        doc.setFontSize(10);
+        doc.setTextColor(100);
+        finalY += 7;
+        doc.text(`Faturamento: ${formatCurrency(vehicleData.faturamento)}`, 16, finalY);
+        doc.text(`Despesas: ${formatCurrency(vehicleData.totalDespesas)}`, 90, finalY); // Ajustado para paisagem
+        doc.text(`Saldo: ${formatCurrency(vehicleData.saldo)}`, 160, finalY); // Ajustado para paisagem
+        finalY += 5;
+
+        // Tabela de Serviços do Veículo
+        if(vehicleData.servicos.length > 0) {
+            // --- Modificação no Cabeçalho e Corpo da Tabela de Serviços ---
+            autoTable(doc, {
+                startY: finalY,
+                head: [['Data', 'Venc.', 'Cliente', 'NF', 'Boleto', 'Status', 'Vencido?', 'Dias Venc.', 'Valor Bruto']],
+                body: vehicleData.servicos.map((s: Servico) => {
+                    const vencimentoDate = parseDateStringAsLocal(s.vencimento);
+                    let vencidoStatus = '';
+                    let diasVencidos = '';
+                    if (vencimentoDate && (s.status === 'Pendente' || s.status === 'Vencido') && vencimentoDate < today) {
+                        vencidoStatus = 'Sim';
+                        diasVencidos = differenceInDays(today, vencimentoDate).toString();
+                    }
+                    return [
+                        s.data ? format(parseDateStringAsLocal(s.data)!, 'dd/MM/yy') : '',
+                        s.vencimento ? format(parseDateStringAsLocal(s.vencimento)!, 'dd/MM/yy') : '',
+                        s.cliente,
+                        s.n_fiscal || '',
+                        s.boleto || '',
+                        s.status,
+                        vencidoStatus,
+                        diasVencidos,
+                        formatCurrency(s.valor_bruto)
+                    ];
+                }),
+                headStyles: { fillColor: '#10523C' },
+                theme: 'grid',
+                tableWidth: 'auto', // <-- Adicionado: Faz a tabela ocupar a largura disponível
+                margin: { left: 14, right: 14 }, // <-- Opcional: Define as margens laterais
+                columnStyles: { // Ajustes de alinhamento e largura relativa (opcional)
+                   7: { halign: 'center' }, // Dias Venc.
+                   8: { halign: 'right' }   // Valor Bruto
+                   // Remover larguras fixas (cellWidth) para permitir auto-ajuste
+                },
+                didDrawPage: (data) => { finalY = data.cursor?.y ?? finalY; }
+            });
+           // finalY = (doc as any).lastAutoTable.finalY; // Atualizado pelo didDrawPage
+        }
+
+        // Tabela de Despesas do Veículo
+        if(vehicleData.despesas.length > 0) {
+             // Verifica espaço antes de desenhar a tabela de despesas
+            if (finalY > 180) { // Margem inferior
+                doc.addPage();
+                finalY = 20; // Reseta Y
+            }
+            autoTable(doc, {
+                startY: finalY + 5, // Adiciona um pequeno espaço
+                head: [['Data', 'Fornecedor', 'Descrição', 'Valor']],
+                body: vehicleData.despesas.map((d: Despesa) => [
+                    d.data ? format(parseDateStringAsLocal(d.data)!, 'dd/MM/yyyy') : '',
+                    d.fornecedor,
+                    d.descricao,
+                    formatCurrency(d.valor_total)
+                ]),
+                headStyles: { fillColor: '#4A5568' }, // Cinza escuro
+                theme: 'grid',
+                tableWidth: 'auto', // <-- Adicionado: Faz a tabela ocupar a largura disponível
+                margin: { left: 14, right: 14 }, // <-- Opcional: Define as margens laterais
+                columnStyles: { // Ajustes de alinhamento (opcional)
+                   3: { halign: 'right' } // Valor
+                   // Remover larguras fixas (cellWidth)
+                },
+                didDrawPage: (data) => { finalY = data.cursor?.y ?? finalY; }
+            });
+            // finalY = (doc as any).lastAutoTable.finalY; // Atualizado pelo didDrawPage
+        }
+    });
+
+    doc.save(`${fileName}.pdf`);
+};
 
   return (
     <div className="space-y-4">
@@ -244,7 +350,7 @@ const Relatorios = () => {
             <p className="text-sm text-muted-foreground">
               Consolidado completo do mês com serviços e despesas.
             </p>
-            
+
             <div>
               <Label htmlFor="month-select" className="text-sm font-medium">Mês</Label>
                <Select value={selectedMonth} onValueChange={setSelectedMonth}>
