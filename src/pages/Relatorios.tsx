@@ -4,7 +4,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { FileDown, Printer } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { format, startOfMonth, endOfMonth, parseISO, differenceInDays } from "date-fns"; // Importar parseISO e differenceInDays
+// Importar parseISO, differenceInDays e isBefore
+import { format, startOfMonth, endOfMonth, parseISO, differenceInDays, isBefore } from "date-fns";
 import { ptBR } from 'date-fns/locale';
 import { supabase } from "@/lib/supabaseClient";
 import * as XLSX from 'xlsx';
@@ -15,11 +16,13 @@ import autoTable from 'jspdf-autotable';
 type Servico = {
     data: string;
     vencimento: string | null; // Adicionado Vencimento
+    os: string; // Adicionado OS
     cliente: string;
     n_fiscal: string | null; // Adicionado NF
     boleto: string | null; // Adicionado Boleto
     placa_veiculo: string;
-    status: 'Pago' | 'Pendente' | 'Vencido' | 'Cancelado'; // Tipagem mais específica
+    // Tipagem mais específica e incluindo 'a Vencer' (implícito na lógica)
+    status: 'Pago' | 'Pendente' | 'Vencido' | 'Cancelado' | 'a Vencer';
     valor_bruto: number;
 };
 type Despesa = { data: string; descricao: string; fornecedor: string; placa_veiculo: string; valor_total: number; };
@@ -37,6 +40,23 @@ const parseDateStringAsLocal = (dateString: string | null | Date): Date | null =
     const date = new Date(`${dateString}T00:00:00`);
     return !isNaN(date.getTime()) ? date : null; // Verifica se a data é válida
 }
+
+// *** NOVA FUNÇÃO para determinar o Status ***
+const getStatusServico = (servico: Servico, today: Date): 'Cancelado' | 'Pago' | 'a Vencer' | 'Vencido' => {
+    if (servico.status === 'Cancelado') {
+        return 'Cancelado';
+    }
+    if (servico.status === 'Pago') {
+        return 'Pago';
+    }
+    const vencimentoDate = parseDateStringAsLocal(servico.vencimento);
+    if (vencimentoDate && isBefore(today, vencimentoDate)) {
+        return 'a Vencer';
+    }
+    // Se não for Cancelado, Pago ou a Vencer, assume-se Vencido (ou Pendente Vencido)
+    return 'Vencido';
+};
+
 
 const Relatorios = () => {
   const [selectedMonth, setSelectedMonth] = useState(format(new Date(), 'yyyy-MM'));
@@ -65,10 +85,10 @@ const Relatorios = () => {
     const startDate = format(startOfMonth(new Date(Number(year), Number(monthStr) - 1)), 'yyyy-MM-dd');
     const endDate = format(endOfMonth(new Date(Number(year), Number(monthStr) - 1)), 'yyyy-MM-dd');
 
-    // Seleciona as colunas necessárias, incluindo nf e boleto
+    // Seleciona as colunas necessárias, incluindo os, nf e boleto
     const { data: servicos, error: servicosError } = await supabase
       .from('servicos')
-      .select('data, vencimento, cliente, n_fiscal, boleto, placa_veiculo, status, valor_bruto')
+      .select('data, vencimento, os, cliente, n_fiscal, boleto, placa_veiculo, status, valor_bruto') // <--- Incluir 'os'
       .gte('data', startDate)
       .lte('data', endDate)
       .order('data', { ascending: true });
@@ -85,6 +105,7 @@ const Relatorios = () => {
     // Supabase retorna null para campos vazios, tratamos aqui para evitar erros
     const formattedServicos = (servicos || []).map(s => ({
         ...s,
+        os: s.os ?? '',             // Garante que é string
         n_fiscal: s.n_fiscal ?? '', // Garante que é string
         boleto: s.boleto ?? '',     // Garante que é string
     }));
@@ -161,21 +182,23 @@ const Relatorios = () => {
 
       // --- Dados dos Serviços para Excel ---
       const today = new Date(); // Data atual para cálculo de dias vencidos
+      // *** AJUSTE NA ORDEM E STATUS ***
       const servicosData = data.servicos.map(s => {
         const vencimentoDate = parseDateStringAsLocal(s.vencimento);
+        const statusCalculado = getStatusServico(s, today); // Calcula o status real
         let diasVencidos = '';
-        if (vencimentoDate && (s.status === 'Pendente' || s.status === 'Vencido') && vencimentoDate < today) {
+        if (statusCalculado === 'Vencido' && vencimentoDate) { // Calcula dias apenas se estiver vencido
             diasVencidos = differenceInDays(today, vencimentoDate).toString();
         }
         return {
           "Data": s.data ? format(parseDateStringAsLocal(s.data)!, 'dd/MM/yyyy') : '',
-          "Vencimento": s.vencimento ? format(parseDateStringAsLocal(s.vencimento)!, 'dd/MM/yyyy') : '',
+          "OS": s.os || '', // Inclui OS
           "Cliente": s.cliente,
           "NF": s.n_fiscal || '', // Inclui NF
           "Boleto": s.boleto || '', // Inclui Boleto
-          "Veículo": s.placa_veiculo,
-          "Status": s.status,
-          "Dias Vencidos": diasVencidos, // Inclui Dias Vencidos
+          "Data Vencimento": s.vencimento ? format(vencimentoDate!, 'dd/MM/yyyy') : '', // Renomeado
+          "Status": statusCalculado, // Usa o status calculado
+          "Dias Vencido": diasVencidos, // Renomeado e ajustado
           "Valor Bruto": s.valor_bruto
         };
       });
@@ -197,10 +220,10 @@ const Relatorios = () => {
       // Ajusta largura das colunas
       wsSummary['!cols'] = [{ wch: 20 }, { wch: 15 }];
       wsVehicleSummary['!cols'] = [{ wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 15 }];
-      // Ajusta colunas de Serviços
+      // *** AJUSTE NA LARGURA DAS COLUNAS DE SERVIÇOS ***
       wsServicos['!cols'] = [
-          { wch: 12 }, { wch: 12 }, { wch: 30 }, { wch: 15 }, { wch: 15 },
-          { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 15 }
+          { wch: 12 }, { wch: 15 }, { wch: 30 }, { wch: 15 }, { wch: 15 }, // Data, OS, Cliente, NF, Boleto
+          { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 15 } // Vencimento, Status, Dias Vencido, Valor Bruto
       ];
       wsDespesas['!cols'] = [{ wch: 12 }, { wch: 15 }, { wch: 25 }, { wch: 30 }, { wch: 15 }];
 
@@ -266,53 +289,51 @@ const Relatorios = () => {
 
         // Tabela de Serviços do Veículo
         if(vehicleData.servicos.length > 0) {
-            // --- Modificação no Cabeçalho e Corpo da Tabela de Serviços ---
+            // *** AJUSTE NA ORDEM DAS COLUNAS E STATUS ***
             autoTable(doc, {
                 startY: finalY,
-                head: [['Data', 'Venc.', 'Cliente', 'NF', 'Boleto', 'Status', 'Vencido?', 'Dias Venc.', 'Valor Bruto']],
+                // Nova ordem: Data, OS, Cliente, NF, Boleto, Data Vencimento, Status, Dias Vencido, Valor Bruto
+                head: [['Data', 'OS', 'Cliente', 'NF', 'Boleto', 'Vencimento', 'Status', 'Dias Venc.', 'Valor Bruto']],
                 body: vehicleData.servicos.map((s: Servico) => {
                     const vencimentoDate = parseDateStringAsLocal(s.vencimento);
-                    let vencidoStatus = '';
+                    const statusCalculado = getStatusServico(s, today); // Calcula o status real
                     let diasVencidos = '';
-                    if (vencimentoDate && (s.status === 'Pendente' || s.status === 'Vencido') && vencimentoDate < today) {
-                        vencidoStatus = 'Sim';
+                    if (statusCalculado === 'Vencido' && vencimentoDate) { // Calcula dias apenas se estiver vencido
                         diasVencidos = differenceInDays(today, vencimentoDate).toString();
                     }
+                    // Retorna na nova ordem
                     return [
                         s.data ? format(parseDateStringAsLocal(s.data)!, 'dd/MM/yy') : '',
-                        s.vencimento ? format(parseDateStringAsLocal(s.vencimento)!, 'dd/MM/yy') : '',
+                        s.os || '',
                         s.cliente,
                         s.n_fiscal || '',
                         s.boleto || '',
-                        s.status,
-                        vencidoStatus,
+                        s.vencimento ? format(vencimentoDate!, 'dd/MM/yy') : '',
+                        statusCalculado, // Usa o status calculado
                         diasVencidos,
                         formatCurrency(s.valor_bruto)
                     ];
                 }),
                 headStyles: { fillColor: '#10523C' },
                 theme: 'grid',
-                tableWidth: 'auto', // <-- Adicionado: Faz a tabela ocupar a largura disponível
-                margin: { left: 14, right: 14 }, // <-- Opcional: Define as margens laterais
-                columnStyles: { // Ajustes de alinhamento e largura relativa (opcional)
+                tableWidth: 'auto',
+                margin: { left: 14, right: 14 },
+                columnStyles: { // Ajustes de alinhamento
                    7: { halign: 'center' }, // Dias Venc.
                    8: { halign: 'right' }   // Valor Bruto
-                   // Remover larguras fixas (cellWidth) para permitir auto-ajuste
                 },
                 didDrawPage: (data) => { finalY = data.cursor?.y ?? finalY; }
             });
-           // finalY = (doc as any).lastAutoTable.finalY; // Atualizado pelo didDrawPage
         }
 
-        // Tabela de Despesas do Veículo
+        // Tabela de Despesas do Veículo (sem alterações aqui)
         if(vehicleData.despesas.length > 0) {
-             // Verifica espaço antes de desenhar a tabela de despesas
-            if (finalY > 180) { // Margem inferior
+            if (finalY > 180) {
                 doc.addPage();
-                finalY = 20; // Reseta Y
+                finalY = 20;
             }
             autoTable(doc, {
-                startY: finalY + 5, // Adiciona um pequeno espaço
+                startY: finalY + 5,
                 head: [['Data', 'Fornecedor', 'Descrição', 'Valor']],
                 body: vehicleData.despesas.map((d: Despesa) => [
                     d.data ? format(parseDateStringAsLocal(d.data)!, 'dd/MM/yyyy') : '',
@@ -320,17 +341,15 @@ const Relatorios = () => {
                     d.descricao,
                     formatCurrency(d.valor_total)
                 ]),
-                headStyles: { fillColor: '#4A5568' }, // Cinza escuro
+                headStyles: { fillColor: '#4A5568' },
                 theme: 'grid',
-                tableWidth: 'auto', // <-- Adicionado: Faz a tabela ocupar a largura disponível
-                margin: { left: 14, right: 14 }, // <-- Opcional: Define as margens laterais
-                columnStyles: { // Ajustes de alinhamento (opcional)
-                   3: { halign: 'right' } // Valor
-                   // Remover larguras fixas (cellWidth)
+                tableWidth: 'auto',
+                margin: { left: 14, right: 14 },
+                columnStyles: {
+                   3: { halign: 'right' }
                 },
                 didDrawPage: (data) => { finalY = data.cursor?.y ?? finalY; }
             });
-            // finalY = (doc as any).lastAutoTable.finalY; // Atualizado pelo didDrawPage
         }
     });
 
