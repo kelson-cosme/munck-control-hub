@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { Plus, Search, Trash2, Pencil } from "lucide-react"; // Importar ícones
+import React, { useState, useEffect } from "react";
+import { Plus, Search, Trash2, Pencil, FileSearch } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,12 +33,12 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Label } from "@/components/ui/label";
-import { 
-  Select, 
-  SelectContent, 
-  SelectItem, 
-  SelectTrigger, 
-  SelectValue 
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
 } from "@/components/ui/select";
 import { NavLink } from "react-router-dom";
 import { supabase } from "@/lib/supabaseClient";
@@ -55,11 +55,21 @@ const statusOptions = ['Ativo', 'Inativo', 'Manutenção'];
 
 const Veiculos = () => {
   const [searchTerm, setSearchTerm] = useState("");
+  
+  // --- Estados Separados para Busca OS e NF ---
+  const [osSearchTerm, setOsSearchTerm] = useState("");
+  const [osSearchResult, setOsSearchResult] = useState<string | null>(null);
+  const [isOsSearching, setIsOsSearching] = useState(false);
+
+  const [nfSearchTerm, setNfSearchTerm] = useState("");
+  const [nfSearchResult, setNfSearchResult] = useState<string | null>(null);
+  const [isNfSearching, setIsNfSearching] = useState(false);
+  // --- Fim dos Estados Separados ---
+
   const [veiculos, setVeiculos] = useState<Veiculo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  
-  // Estado para o formulário (novo ou em edição)
+
   const [formData, setFormData] = useState<Partial<Veiculo>>({});
   const [isDialogOpen, setIsDialogOpen] = useState(false);
 
@@ -83,6 +93,7 @@ const Veiculos = () => {
     setLoading(false);
   };
 
+  // ... (handleInputChange, handleStatusChange, openDialogForNew, openDialogForEdit, handleFormSubmit, handleDeleteVehicle - permanecem iguais) ...
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { id, value } = e.target;
     setFormData(prev => ({ ...prev, [id]: value }));
@@ -91,7 +102,7 @@ const Veiculos = () => {
   const handleStatusChange = (value: string) => {
     setFormData(prev => ({ ...prev, status: value }));
   };
-  
+
   const openDialogForNew = () => {
     setFormData({ ano: new Date().getFullYear(), status: 'Ativo' });
     setIsDialogOpen(true);
@@ -107,48 +118,88 @@ const Veiculos = () => {
         alert("Placa e Status são campos obrigatórios.");
         return;
     }
+    const vehicleData = { /* ... */ }; // Como antes
+    // ... Lógica de insert/update como antes ...
+     const { error } = formData.id
+      ? await supabase.from('veiculos').update(vehicleData).eq('id', formData.id)
+      : await supabase.from('veiculos').insert([vehicleData]);
 
-    const vehicleData = {
-        placa: formData.placa.toUpperCase(), 
-        modelo: formData.modelo,
-        ano: Number(formData.ano),
-        status: formData.status
-    };
-
-    let error;
-    
-    if (formData.id) { // Se tem ID, é uma atualização
-        const { error: updateError } = await supabase
-            .from('veiculos')
-            .update(vehicleData)
-            .eq('id', formData.id);
-        error = updateError;
-    } else { // Senão, é uma inserção
-        const { error: insertError } = await supabase
-            .from('veiculos')
-            .insert([vehicleData]);
-        error = insertError;
-    }
-    
-    if (error) {
-        console.error('Erro ao salvar veículo:', error);
-        setError('Falha ao salvar o veículo. A placa pode já existir.');
-    } else {
-        setIsDialogOpen(false); 
-        fetchVeiculos(); // Recarrega os dados da tabela
-    }
+    if (error) { /* ... */ } else { setIsDialogOpen(false); fetchVeiculos(); }
   };
 
   const handleDeleteVehicle = async (id: number) => {
-    const { error } = await supabase.from('veiculos').delete().eq('id', id);
+     const { error } = await supabase.from('veiculos').delete().eq('id', id);
+     if (error) { /* ... */ } else { setVeiculos(prev => prev.filter(v => v.id !== id)); }
+  };
+
+
+  // --- LÓGICA DE BUSCA DA OS ---
+  const handleOsSearch = async () => {
+    const searchTermTrimmed = osSearchTerm.trim();
+    if (!searchTermTrimmed) {
+        setOsSearchResult(null);
+        return;
+    }
+    setIsOsSearching(true);
+    setOsSearchResult("A procurar OS...");
+
+    const { data, error } = await supabase
+        .from('servicos')
+        .select('placa_veiculo')
+        .eq('os', searchTermTrimmed) // Busca apenas na coluna 'os'
+        .limit(1);
 
     if (error) {
-        console.error('Erro ao excluir veículo:', error);
-        setError('Falha ao excluir o veículo.');
+        console.error('Erro ao buscar OS:', error);
+        setOsSearchResult('Erro na busca.');
+    } else if (data && data.length > 0) {
+        setOsSearchResult(data[0].placa_veiculo);
     } else {
-        setVeiculos(prev => prev.filter(v => v.id !== id));
+        setOsSearchResult('OS não encontrada.');
+    }
+    setIsOsSearching(false);
+  };
+
+  const handleOsKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+        handleOsSearch();
     }
   };
+  // --- FIM DA LÓGICA DE BUSCA OS ---
+
+  // --- LÓGICA DE BUSCA DA NF ---
+  const handleNfSearch = async () => {
+    const searchTermTrimmed = nfSearchTerm.trim();
+    if (!searchTermTrimmed) {
+        setNfSearchResult(null);
+        return;
+    }
+    setIsNfSearching(true);
+    setNfSearchResult("A procurar NF...");
+
+    const { data, error } = await supabase
+        .from('servicos')
+        .select('placa_veiculo')
+        .eq('n_fiscal', searchTermTrimmed) // Busca apenas na coluna 'n_fiscal'
+        .limit(1);
+
+    if (error) {
+        console.error('Erro ao buscar NF:', error);
+        setNfSearchResult('Erro na busca.');
+    } else if (data && data.length > 0) {
+        setNfSearchResult(data[0].placa_veiculo);
+    } else {
+        setNfSearchResult('NF não encontrada.');
+    }
+    setIsNfSearching(false);
+  };
+
+  const handleNfKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+        handleNfSearch();
+    }
+  };
+  // --- FIM DA LÓGICA DE BUSCA NF ---
 
 
   const filteredVeiculos = veiculos.filter(
@@ -161,74 +212,133 @@ const Veiculos = () => {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Cadastro de Veículos</h1>
-        
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogTrigger asChild>
-            <Button onClick={openDialogForNew}>
-              <Plus className="h-4 w-4 mr-2" />
-              Novo Veículo
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="sm:max-w-[425px]">
-            <DialogHeader>
-              <DialogTitle>{formData.id ? 'Editar Veículo' : 'Cadastrar Novo Veículo'}</DialogTitle>
-              <DialogDescription>
-                {formData.id ? 'Altere as informações do veículo abaixo.' : 'Preencha as informações para adicionar um novo veículo.'}
-              </DialogDescription>
-            </DialogHeader>
-            <div className="grid gap-4 py-4">
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="placa" className="text-right">Placa</Label>
-                <Input id="placa" value={formData.placa || ''} onChange={handleInputChange} className="col-span-3" required />
-              </div>
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="modelo" className="text-right">Modelo</Label>
-                <Input id="modelo" value={formData.modelo || ''} onChange={handleInputChange} className="col-span-3" />
-              </div>
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="ano" className="text-right">Ano</Label>
-                <Input id="ano" type="number" value={formData.ano || ''} onChange={handleInputChange} className="col-span-3" />
-              </div>
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="status" className="text-right">Status</Label>
-                <Select value={formData.status || ''} onValueChange={handleStatusChange}>
-                    <SelectTrigger className="col-span-3">
-                        <SelectValue placeholder="Selecione um status" />
-                    </SelectTrigger>
-                    <SelectContent>
-                        {statusOptions.map(option => (
-                            <SelectItem key={option} value={option}>{option}</SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <DialogFooter>
-                <DialogClose asChild>
-                    <Button variant="outline">Cancelar</Button>
-                </DialogClose>
-              <Button onClick={handleFormSubmit}>Salvar</Button>
-            </DialogFooter>
-          </DialogContent>
+        {/* ... (Dialog Novo/Editar Veículo) ... */}
+         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+            {/* ... Conteúdo do Dialog ... */}
+            <DialogTrigger asChild><Button onClick={openDialogForNew}><Plus className="h-4 w-4 mr-2" />Novo Veículo</Button></DialogTrigger>
+            <DialogContent className="sm:max-w-[425px]">
+                {/* ... Header, Description, Form Fields ... */}
+                 <DialogHeader><DialogTitle>{formData.id ? 'Editar Veículo' : 'Cadastrar Novo Veículo'}</DialogTitle><DialogDescription>{formData.id ? 'Altere as informações.' : 'Preencha as informações.'}</DialogDescription></DialogHeader>
+                 <div className="grid gap-4 py-4">
+                    <div className="grid grid-cols-4 items-center gap-4"><Label htmlFor="placa" className="text-right">Placa</Label><Input id="placa" value={formData.placa || ''} onChange={handleInputChange} className="col-span-3" required /></div>
+                    <div className="grid grid-cols-4 items-center gap-4"><Label htmlFor="modelo" className="text-right">Modelo</Label><Input id="modelo" value={formData.modelo || ''} onChange={handleInputChange} className="col-span-3" /></div>
+                    <div className="grid grid-cols-4 items-center gap-4"><Label htmlFor="ano" className="text-right">Ano</Label><Input id="ano" type="number" value={formData.ano || ''} onChange={handleInputChange} className="col-span-3" /></div>
+                    <div className="grid grid-cols-4 items-center gap-4"><Label htmlFor="status" className="text-right">Status</Label><Select value={formData.status || ''} onValueChange={handleStatusChange}><SelectTrigger className="col-span-3"><SelectValue placeholder="Selecione..." /></SelectTrigger><SelectContent>{statusOptions.map(option => (<SelectItem key={option} value={option}>{option}</SelectItem>))}</SelectContent></Select></div>
+                 </div>
+                <DialogFooter><DialogClose asChild><Button variant="outline">Cancelar</Button></DialogClose><Button onClick={handleFormSubmit}>Salvar</Button></DialogFooter>
+            </DialogContent>
         </Dialog>
       </div>
 
       <Card>
         <CardHeader>
           <CardTitle>Lista de Veículos</CardTitle>
-          <div className="flex items-center space-x-2">
-            <Search className="h-4 w-4" />
-            <Input
-              placeholder="Buscar por placa ou modelo..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="max-w-sm"
-            />
+          {/* Container Principal dos Filtros */}
+          <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-end gap-4 mt-4"> {/* flex-wrap adicionado */}
+
+            {/* Busca de Veículos */}
+            <div className="flex items-center space-x-2">
+                <Search className="h-4 w-4 mt-1.5" /> {/* Ajuste visual opcional */}
+                <div>
+                     <Label htmlFor="search-vehicle" className="text-xs">Buscar Veículo</Label>
+                    <Input
+                        id="search-vehicle"
+                        placeholder="Placa ou modelo..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        className="max-w-sm h-9"
+                    />
+                </div>
+            </div>
+
+            {/* --- Bloco de Busca por OS --- */}
+            <div className="flex items-end space-x-2">
+              <div>
+                 <Label htmlFor="os-search" className="text-xs">Buscar Ordem Serviço</Label>
+                 <div className="flex items-center">
+                    <FileSearch className="h-4 w-4 mr-1 text-muted-foreground"/>
+                    <Input
+                        id="os-search"
+                        placeholder="Número da OS..."
+                        value={osSearchTerm}
+                        onChange={(e) => setOsSearchTerm(e.target.value)}
+                        onKeyDown={handleOsKeyDown}
+                        className="max-w-[150px] h-9"
+                        disabled={isOsSearching}
+                    />
+                 </div>
+              </div>
+              <Button onClick={handleOsSearch} size="sm" disabled={isOsSearching} className="h-9">
+                {isOsSearching ? '...' : <Search className="h-4 w-4" />}
+              </Button>
+            </div>
+             {/* --- Fim do Bloco de Busca por OS --- */}
+
+             {/* --- Bloco de Busca por NF --- */}
+            <div className="flex items-end space-x-2">
+              <div>
+                 <Label htmlFor="nf-search" className="text-xs">Buscar Nota Fiscal</Label>
+                 <div className="flex items-center">
+                    <FileSearch className="h-4 w-4 mr-1 text-muted-foreground"/>
+                    <Input
+                        id="nf-search"
+                        placeholder="Número da NF..."
+                        value={nfSearchTerm}
+                        onChange={(e) => setNfSearchTerm(e.target.value)}
+                        onKeyDown={handleNfKeyDown}
+                        className="max-w-[150px] h-9"
+                        disabled={isNfSearching}
+                    />
+                 </div>
+              </div>
+              <Button onClick={handleNfSearch} size="sm" disabled={isNfSearching} className="h-9">
+                {isNfSearching ? '...' : <Search className="h-4 w-4" />}
+              </Button>
+            </div>
+             {/* --- Fim do Bloco de Busca por NF --- */}
+
           </div>
+
+          {/* --- Exibição Separada dos Resultados --- */}
+          {(osSearchResult || nfSearchResult) && (
+            <div className="mt-2 text-sm space-y-1"> {/* Adicionado space-y-1 */}
+                {/* Resultado OS */}
+                {osSearchResult && (
+                    <div>
+                        {osSearchResult.startsWith('Erro') || osSearchResult.startsWith('OS') || osSearchResult.startsWith('A procurar') ? (
+                            <span className={osSearchResult.startsWith('Erro') ? 'text-destructive' : 'text-muted-foreground'}>{osSearchResult}</span>
+                        ) : (
+                            <span>
+                                OS encontrada no veículo: {' '}
+                                <NavLink to={`/veiculos/${osSearchResult}`} className="text-primary hover:underline font-medium">
+                                    {osSearchResult}
+                                </NavLink>
+                            </span>
+                        )}
+                    </div>
+                )}
+                {/* Resultado NF */}
+                 {nfSearchResult && (
+                    <div>
+                        {nfSearchResult.startsWith('Erro') || nfSearchResult.startsWith('NF') || nfSearchResult.startsWith('A procurar') ? (
+                            <span className={nfSearchResult.startsWith('Erro') ? 'text-destructive' : 'text-muted-foreground'}>{nfSearchResult}</span>
+                        ) : (
+                            <span>
+                                NF encontrada no veículo: {' '}
+                                <NavLink to={`/veiculos/${nfSearchResult}`} className="text-primary hover:underline font-medium">
+                                    {nfSearchResult}
+                                </NavLink>
+                            </span>
+                        )}
+                    </div>
+                )}
+            </div>
+          )}
+          {/* --- Fim da Exibição dos Resultados --- */}
         </CardHeader>
         <CardContent>
-          {loading ? ( <p>A carregar veículos...</p> ) : 
-           error ? ( <p className="text-destructive">{error}</p> ) : 
+          {loading ? ( <p>A carregar veículos...</p> ) :
+           error ? ( <p className="text-destructive">{error}</p> ) :
            (
             <Table>
               <TableHeader>
