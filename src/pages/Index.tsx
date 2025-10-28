@@ -114,16 +114,28 @@ const Dashboard = () => {
 
             // Popula as opções de meses
             const dates = [...allServicos.map(s => s.data), ...allDespesas.map(d => d.data)];
-            const uniqueMonths = [...new Set(dates.map(d => format(parseISO(d), 'yyyy-MM')))];
-            const options = uniqueMonths.sort().reverse().map(monthStr => ({
-                value: monthStr,
-                label: format(parseISO(`${monthStr}-01`), "MMMM 'de' yyyy", { locale: ptBR })
-            }));
-            setMonthOptions(options);
-
-            // Popula as opções de veículos
-            const vehicleOpts = allVeiculos.map(v => ({ value: v.placa, label: v.placa }));
-            setVehicleOptions(vehicleOpts);
+            const validDates = dates.filter((d): d is string => typeof d === 'string' && d.length > 0);
+            const uniqueMonths = [...new Set(validDates.map(d => {
+              try {
+                  return format(parseISO(d), 'yyyy-MM');
+              } catch (e) {
+                  console.error("Error parsing date for month options:", d, e);
+                  return null; // Return null if parsing fails
+              }
+          }))].filter((m): m is string => m !== null); // Filter out any nulls resulting from errors
+          
+          const options = uniqueMonths.sort().reverse().map(monthStr => {
+               try {
+                   return {
+                       value: monthStr,
+                       label: format(parseISO(`${monthStr}-01`), "MMMM 'de' yyyy", { locale: ptBR })
+                   };
+               } catch(e) {
+                   console.error("Error formatting month label:", monthStr, e);
+                   return { value: monthStr, label: 'Erro Data' }; // Provide a fallback label
+               }
+          });
+          setMonthOptions(options);
 
             // Filtra por mês
             const servicos = selectedMonth === 'all' 
