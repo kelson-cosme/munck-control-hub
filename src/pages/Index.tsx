@@ -278,213 +278,216 @@ const Dashboard = () => {
     if (loading) return <p>A carregar dashboard...</p>
     if (error) return <p className="text-destructive">{error}</p>
 
-  return (
-    <div className="space-y-6 printable-container">
-      {/* ... (Header e Cards de Resumo/Previsão permanecem iguais) ... */}
-       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between print-hide">
-        <div>
-            <h1 className="text-2xl font-bold">Dashboard - Sistema de Gestão Munck</h1>
-            <p className="text-muted-foreground">Resumo financeiro e operacional</p>
+    return (
+      <div className="space-y-6 printable-container">
+        {/* ... (Header and Summary/Forecast Cards remain the same) ... */}
+         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between print-hide">
+          <div>
+              <h1 className="text-2xl font-bold">Dashboard - Sistema de Gestão Munck</h1>
+              <p className="text-muted-foreground">Resumo financeiro e operacional</p>
+          </div>
+          <div className="mt-4 sm:mt-0">
+              <Select value={selectedMonth} onValueChange={setSelectedMonth}>
+                  <SelectTrigger className="w-[220px]">
+                      <SelectValue placeholder="Selecione o período" />
+                  </SelectTrigger>
+                  <SelectContent>
+                      <SelectItem value="all">Visão Geral</SelectItem>
+                      {monthOptions.map(option => (
+                          <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                          </SelectItem>
+                      ))}
+                  </SelectContent>
+              </Select>
+          </div>
         </div>
-        <div className="mt-4 sm:mt-0">
-            <Select value={selectedMonth} onValueChange={setSelectedMonth}>
-                <SelectTrigger className="w-[220px]">
-                    <SelectValue placeholder="Selecione o período" />
-                </SelectTrigger>
-                <SelectContent>
-                    <SelectItem value="all">Visão Geral</SelectItem>
-                    {monthOptions.map(option => (
-                        <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                        </SelectItem>
-                    ))}
-                </SelectContent>
-            </Select>
+         <div className="grid gap-6 md:grid-cols-2 print-hide">
+          <Card>
+              <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                  <Calculator className="h-5 w-5" />
+                  Resumo Financeiro
+                  </CardTitle>
+              </CardHeader>
+              <CardContent>
+                  <Table>
+                  <TableBody>
+                      <TableRow>
+                          <TableCell className="font-medium">Total Recebido {summaryLabel}</TableCell>
+                          <TableCell className="text-right">{formatCurrency(summary.totalRecebido)}</TableCell>
+                      </TableRow>
+                      <TableRow>
+                          <TableCell className="font-medium">Total a Receber {summaryLabel}</TableCell>
+                          <TableCell className="text-right">{formatCurrency(summary.totalAReceber)}</TableCell>
+                      </TableRow>
+                      <TableRow>
+                          <TableCell className="font-medium">Despesas {summaryLabel}</TableCell>
+                          <TableCell className="text-right text-destructive">{formatCurrency(summary.despesas)}</TableCell>
+                      </TableRow>
+                      <TableRow>
+                          <TableCell className="font-medium">Valor Líquido {summaryLabel}</TableCell>
+                          <TableCell className="text-right font-bold">{formatCurrency(summary.valorLiquido)}</TableCell>
+                      </TableRow>
+                  </TableBody>
+                  </Table>
+                   <Accordion type="single" collapsible className="w-full mt-4">
+                  <AccordionItem value="item-1">
+                      <AccordionTrigger>Detalhes por Veículo {summaryLabel}</AccordionTrigger>
+                      <AccordionContent>
+                      <Table>
+                          <TableHeader>
+                          <TableRow>
+                              <TableHead>Veículo</TableHead>
+                              <TableHead className="text-right">A Receber</TableHead>
+                              <TableHead className="text-right">Despesas</TableHead>
+                          </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                          {resumoPorVeiculo.map(veiculo => (
+                              <TableRow key={veiculo.placa}>
+                              <TableCell className="font-medium">{veiculo.placa}</TableCell>
+                              <TableCell className="text-right">{formatCurrency(veiculo.totalAReceber)}</TableCell>
+                              <TableCell className="text-right text-destructive">{formatCurrency(veiculo.despesas)}</TableCell>
+                              </TableRow>
+                          ))}
+                          </TableBody>
+                      </Table>
+                      </AccordionContent>
+                  </AccordionItem>
+                  </Accordion>
+              </CardContent>
+          </Card>
+          <Card>
+               <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                  <TrendingUp className="h-5 w-5" />
+                  Previsão de Recebimento (Geral)
+                  </CardTitle>
+              </CardHeader>
+              <CardContent>
+                  <Table>
+                  <TableBody>
+                      {previsaoRecebimento.map((item, index) => (
+                      <TableRow key={index}>
+                          <TableCell className="font-medium">{item.periodo}</TableCell>
+                          <TableCell className="text-right">{formatCurrency(item.valor)}</TableCell>
+                      </TableRow>
+                      ))}
+                  </TableBody>
+                  </Table>
+                  <Accordion type="single" collapsible className="w-full mt-4">
+                  <AccordionItem value="item-1">
+                      <AccordionTrigger>Detalhes por Veículo</AccordionTrigger>
+                      <AccordionContent>
+                      {Object.entries(previsaoPorVeiculo).map(([placa, previsao]) => (
+                          <div key={placa} className="mb-4">
+                          <h4 className="font-semibold mb-2">{placa}</h4>
+                          <Table>
+                              <TableBody>
+                              {previsao.map((item, index) => (
+                                  <TableRow key={index}>
+                                  <TableCell className="font-medium">{item.periodo}</TableCell>
+                                  <TableCell className="text-right">{formatCurrency(item.valor)}</TableCell>
+                                  </TableRow>
+                              ))}
+                              </TableBody>
+                          </Table>
+                          </div>
+                      ))}
+                      </AccordionContent>
+                  </AccordionItem>
+                  </Accordion>
+              </CardContent>
+          </Card>
         </div>
-      </div>
-       <div className="grid gap-6 md:grid-cols-2 print-hide">
-        <Card>
-            <CardHeader>
-                <CardTitle className="text-lg flex items-center gap-2">
-                <Calculator className="h-5 w-5" />
-                Resumo Financeiro
-                </CardTitle>
-            </CardHeader>
-            <CardContent>
-                <Table>
-                <TableBody>
-                    <TableRow>
-                        <TableCell className="font-medium">Total Recebido {summaryLabel}</TableCell>
-                        <TableCell className="text-right">{formatCurrency(summary.totalRecebido)}</TableCell>
-                    </TableRow>
-                    <TableRow>
-                        <TableCell className="font-medium">Total a Receber {summaryLabel}</TableCell>
-                        <TableCell className="text-right">{formatCurrency(summary.totalAReceber)}</TableCell>
-                    </TableRow>
-                    <TableRow>
-                        <TableCell className="font-medium">Despesas {summaryLabel}</TableCell>
-                        <TableCell className="text-right text-destructive">{formatCurrency(summary.despesas)}</TableCell>
-                    </TableRow>
-                    <TableRow>
-                        <TableCell className="font-medium">Valor Líquido {summaryLabel}</TableCell>
-                        <TableCell className="text-right font-bold">{formatCurrency(summary.valorLiquido)}</TableCell>
-                    </TableRow>
-                </TableBody>
-                </Table>
-                 <Accordion type="single" collapsible className="w-full mt-4">
-                <AccordionItem value="item-1">
-                    <AccordionTrigger>Detalhes por Veículo {summaryLabel}</AccordionTrigger>
-                    <AccordionContent>
-                    <Table>
-                        <TableHeader>
-                        <TableRow>
-                            <TableHead>Veículo</TableHead>
-                            <TableHead className="text-right">A Receber</TableHead>
-                            <TableHead className="text-right">Despesas</TableHead>
-                        </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                        {resumoPorVeiculo.map(veiculo => (
-                            <TableRow key={veiculo.placa}>
-                            <TableCell className="font-medium">{veiculo.placa}</TableCell>
-                            <TableCell className="text-right">{formatCurrency(veiculo.totalAReceber)}</TableCell>
-                            <TableCell className="text-right text-destructive">{formatCurrency(veiculo.despesas)}</TableCell>
-                            </TableRow>
-                        ))}
-                        </TableBody>
-                    </Table>
-                    </AccordionContent>
-                </AccordionItem>
-                </Accordion>
-            </CardContent>
-        </Card>
-        <Card>
-             <CardHeader>
-                <CardTitle className="text-lg flex items-center gap-2">
-                <TrendingUp className="h-5 w-5" />
-                Previsão de Recebimento (Geral)
-                </CardTitle>
-            </CardHeader>
-            <CardContent>
-                <Table>
-                <TableBody>
-                    {previsaoRecebimento.map((item, index) => (
-                    <TableRow key={index}>
-                        <TableCell className="font-medium">{item.periodo}</TableCell>
-                        <TableCell className="text-right">{formatCurrency(item.valor)}</TableCell>
-                    </TableRow>
-                    ))}
-                </TableBody>
-                </Table>
-                <Accordion type="single" collapsible className="w-full mt-4">
-                <AccordionItem value="item-1">
-                    <AccordionTrigger>Detalhes por Veículo</AccordionTrigger>
-                    <AccordionContent>
-                    {Object.entries(previsaoPorVeiculo).map(([placa, previsao]) => (
-                        <div key={placa} className="mb-4">
-                        <h4 className="font-semibold mb-2">{placa}</h4>
-                        <Table>
-                            <TableBody>
-                            {previsao.map((item, index) => (
-                                <TableRow key={index}>
-                                <TableCell className="font-medium">{item.periodo}</TableCell>
-                                <TableCell className="text-right">{formatCurrency(item.valor)}</TableCell>
-                                </TableRow>
-                            ))}
-                            </TableBody>
-                        </Table>
-                        </div>
-                    ))}
-                    </AccordionContent>
-                </AccordionItem>
-                </Accordion>
-            </CardContent>
-        </Card>
-      </div>
-
-      <Card id="servicos-pendentes-card">
-        {/* ... (CardHeader com filtros e botão de impressão - mantém-se igual) ... */}
-         <CardHeader>
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between print-hide">
-                <CardTitle className="text-lg flex items-center gap-2 mb-2 sm:mb-0">
-                    <FileText className="h-5 w-5" />
-                    Serviços Pendentes de Pagamento {summaryLabel}
-                </CardTitle>
-                <div className="flex items-center gap-2">
-                    <Select value={selectedVehicle} onValueChange={setSelectedVehicle}>
-                        <SelectTrigger className="w-full sm:w-[220px]">
-                            <SelectValue placeholder="Filtrar por veículo" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="all">Todos os Veículos</SelectItem>
-                            {vehicleOptions.map(option => (
-                                <SelectItem key={option.value} value={option.value}>
-                                    {option.label}
-                                </SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                    <Button variant="outline" size="icon" onClick={handlePrint} title="Imprimir Lista">
-                        <Printer className="h-4 w-4" />
-                    </Button>
-                </div>
-            </div>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                 {/* Adicionar TableHead para OS e NF */}
-                <TableHead>OS</TableHead>
-                <TableHead>NF</TableHead>
-                <TableHead>Cliente</TableHead>
-                <TableHead>Veículo</TableHead>
-                <TableHead>Valor</TableHead>
-                <TableHead>Vencimento</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Dias Venc.</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {servicosPendentes.map((servico) => {
-                const vencimentoDate = parseDateStringAsLocal(servico.vencimento);
-                const today = new Date();
-                const diasVencidos = servico.status === 'Vencido' && vencimentoDate
-                  ? differenceInDays(today, vencimentoDate)
-                  : null;
-
-                return (
-                    <TableRow key={servico.id}>
-                         {/* Adicionar TableCell para OS e NF */}
-                        <TableCell>{servico.os || '-'}</TableCell>
-                        <TableCell>{servico.n_fiscal || '-'}</TableCell>
-                        <TableCell>{servico.cliente}</TableCell>
-                        <TableCell>{servico.placa_veiculo}</TableCell>
-                        <TableCell>{formatCurrency(servico.valor_bruto)}</TableCell>
-                        <TableCell>
-                            {vencimentoDate ? format(vencimentoDate, 'dd/MM/yyyy') : 'N/A'}
-                        </TableCell>
-                        <TableCell>{servico.status}</TableCell>
-                        <TableCell className={cn(diasVencidos !== null && diasVencidos > 0 ? 'text-destructive font-medium' : '')}>
-                            {diasVencidos !== null && diasVencidos > 0 ? diasVencidos : '-'}
-                        </TableCell>
-                    </TableRow>
-                );
-              })}
-              {servicosPendentes.length === 0 && (
+  
+        <Card id="servicos-pendentes-card">
+          {/* CardHeader remains the same */}
+          <CardHeader>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between print-hide">
+                  <CardTitle className="text-lg flex items-center gap-2 mb-2 sm:mb-0">
+                      <FileText className="h-5 w-5" />
+                      Serviços Pendentes de Pagamento {summaryLabel}
+                  </CardTitle>
+                  <div className="flex items-center gap-2">
+                      <Select value={selectedVehicle} onValueChange={setSelectedVehicle}>
+                          <SelectTrigger className="w-full sm:w-[220px]">
+                              <SelectValue placeholder="Filtrar por veículo" />
+                          </SelectTrigger>
+                          <SelectContent>
+                              <SelectItem value="all">Todos os Veículos</SelectItem>
+                              {vehicleOptions.map(option => (
+                                  <SelectItem key={option.value} value={option.value}>
+                                      {option.label}
+                                  </SelectItem>
+                              ))}
+                          </SelectContent>
+                      </Select>
+                      <Button variant="outline" size="icon" onClick={handlePrint} title="Imprimir Lista">
+                          <Printer className="h-4 w-4" />
+                      </Button>
+                  </div>
+              </div>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
                 <TableRow>
-                     {/* Atualizar colSpan para 8 */}
-                    <TableCell colSpan={8} className="text-center text-muted-foreground">
-                        Nenhum serviço pendente encontrado para os filtros selecionados.
-                    </TableCell>
+                  <TableHead>OS</TableHead>
+                  <TableHead>NF</TableHead>
+                  <TableHead>Cliente</TableHead>
+                  <TableHead>Veículo</TableHead>
+                  <TableHead>Valor</TableHead>
+                  <TableHead>Vencimento</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Dias Venc.</TableHead>
                 </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
-    </div>
-  );
-};
-
-export default Dashboard;
+              </TableHeader>
+              <TableBody>
+                {servicosPendentes.map((servico) => {
+                  const vencimentoDate = parseDateStringAsLocal(servico.vencimento);
+                  const today = new Date();
+                  const diasVencidos = servico.status === 'Vencido' && vencimentoDate
+                    ? differenceInDays(today, vencimentoDate)
+                    : null;
+  
+                  return (
+                      // Adicionar a classe condicional aqui
+                      <TableRow
+                          key={servico.id}
+                          className={cn(servico.status === 'Vencido' ? 'text-destructive' : '')}
+                      >
+                          <TableCell>{servico.os || '-'}</TableCell>
+                          <TableCell>{servico.n_fiscal || '-'}</TableCell>
+                          <TableCell>{servico.cliente}</TableCell>
+                          <TableCell>{servico.placa_veiculo}</TableCell>
+                          <TableCell>{formatCurrency(servico.valor_bruto)}</TableCell>
+                          <TableCell>
+                              {vencimentoDate ? format(vencimentoDate, 'dd/MM/yyyy') : 'N/A'}
+                          </TableCell>
+                          {/* Aplicar negrito ao status se estiver vencido */}
+                          <TableCell className={cn(servico.status === 'Vencido' ? 'font-bold' : '')}>{servico.status}</TableCell>
+                           {/* Manter a classe na célula de dias vencidos */}
+                          <TableCell className={cn(diasVencidos !== null && diasVencidos > 0 ? 'font-medium' : '')}>
+                              {diasVencidos !== null && diasVencidos > 0 ? diasVencidos : '-'}
+                          </TableCell>
+                      </TableRow>
+                  );
+                })}
+                {servicosPendentes.length === 0 && (
+                  <TableRow>
+                      <TableCell colSpan={8} className="text-center text-muted-foreground">
+                          Nenhum serviço pendente encontrado para os filtros selecionados.
+                      </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  };
+  
+  export default Dashboard;
