@@ -7,7 +7,7 @@ import {
   FileText,
   Menu,
   LogOut,
-  UserCircle // <--- Adicionar ícone para Perfil
+  UserCircle
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -40,14 +40,15 @@ export function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
     if (error) {
         console.error('Erro ao fazer logout:', error);
     } else {
-        navigate('/');
+        navigate('/'); // Redireciona para login após logout
     }
   };
 
   return (
+    // Adicionar a classe print-hide aqui
     <div
       className={cn(
-        "fixed top-0 left-0 z-10 flex h-screen flex-col border-r bg-card transition-all",
+        "fixed top-0 left-0 z-10 flex h-screen flex-col border-r bg-card transition-all print-hide", // <-- ADICIONADO AQUI
         collapsed ? "w-16" : "w-56"
       )}
     >

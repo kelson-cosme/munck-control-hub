@@ -1,5 +1,6 @@
+// src/pages/Index.tsx
 import { useEffect, useState } from "react";
-import { Calculator, TrendingUp, FileText } from "lucide-react";
+import { Calculator, TrendingUp, FileText, Printer } from "lucide-react"; // Mantém Printer
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -23,8 +24,10 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { supabase } from "@/lib/supabaseClient";
-import { format, isWithinInterval, addDays, parseISO, isValid } from 'date-fns';
+import { format, isWithinInterval, addDays, parseISO, isValid, isBefore, differenceInDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 // Interfaces
 interface Servico {
@@ -32,12 +35,14 @@ interface Servico {
   cliente: string;
   placa_veiculo: string;
   valor_bruto: number;
-  status: 'Pago' | 'Pendente' | 'Vencido' | 'Cancelado';
+  status: 'Pago' | 'Pendente' | 'Vencido' | 'Cancelado' | 'a Vencer';
   data: string;
   data_pagamento: string | null;
   vencimento: string;
+  os: string | null; // Adicionado OS
+  n_fiscal: string | null; // Adicionado NF
 }
-
+// ... (outras interfaces e funções como antes) ...
 interface Despesa {
     id: number;
     valor_total: number;
@@ -55,21 +60,37 @@ interface ResumoVeiculo {
     despesas: number;
 }
 
-// Função para formatar moeda
+// Função para formatar moeda (mantém-se igual)
 const formatCurrency = (value: number) => {
     return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 };
 
-// --- CORREÇÃO DE FUSO HORÁRIO ---
+// --- CORREÇÃO DE FUSO HORÁRIO --- (mantém-se igual)
 const parseDateStringAsLocal = (dateString: string | null | Date): Date | null => {
     if (!dateString) return null;
     if (dateString instanceof Date) return dateString;
-    // Adicionar T00:00:00 força o JS a interpretar a data no fuso horário local
     const date = new Date(`${dateString}T00:00:00`);
     return isValid(date) ? date : null;
 }
 
+// *** NOVA FUNÇÃO para determinar o Status *** (mantém-se igual)
+const getStatusServico = (servico: Servico, today: Date): 'Cancelado' | 'Pago' | 'a Vencer' | 'Vencido' => {
+    if (servico.status === 'Cancelado') {
+        return 'Cancelado';
+    }
+    if (servico.status === 'Pago') {
+        return 'Pago';
+    }
+    const vencimentoDate = parseDateStringAsLocal(servico.vencimento);
+    if (vencimentoDate && isBefore(today, vencimentoDate)) {
+        return 'a Vencer';
+    }
+    return 'Vencido';
+};
+
+
 const Dashboard = () => {
+    // ... (estados existentes - mantêm-se iguais) ...
     const [summary, setSummary] = useState({
         totalRecebido: 0,
         totalAReceber: 0,
@@ -82,11 +103,8 @@ const Dashboard = () => {
     const [servicosPendentes, setServicosPendentes] = useState<Servico[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-
     const [selectedMonth, setSelectedMonth] = useState<string>('all');
     const [monthOptions, setMonthOptions] = useState<{ value: string; label: string; }[]>([]);
-
-    // Novos estados para o filtro de veículo
     const [selectedVehicle, setSelectedVehicle] = useState<string>('all');
     const [vehicleOptions, setVehicleOptions] = useState<{ value: string; label: string; }[]>([]);
 
@@ -94,13 +112,15 @@ const Dashboard = () => {
         const fetchDataAndCalculate = async () => {
             setLoading(true);
             setError(null);
-            
+
+             // Garantir que 'os' e 'n_fiscal' estão selecionados (o '*' já faz isso, mas podemos ser explícitos)
             const [servicosResponse, despesasResponse, veiculosResponse] = await Promise.all([
-                supabase.from('servicos').select('id, cliente, placa_veiculo, valor_bruto, status, data, data_pagamento, vencimento'),
+                supabase.from('servicos').select('id, cliente, placa_veiculo, valor_bruto, status, data, data_pagamento, vencimento, os, n_fiscal'), // Explicitamente buscar os e n_fiscal
                 supabase.from('despesas').select('id, valor_total, data, placa_veiculo'),
                 supabase.from('veiculos').select('placa')
             ]);
 
+            // ... (restante da lógica do useEffect permanece igual) ...
             if (servicosResponse.error || despesasResponse.error || veiculosResponse.error) {
                 console.error("Erro ao buscar dados:", servicosResponse.error || despesasResponse.error || veiculosResponse.error);
                 setError("Não foi possível carregar os dados do dashboard.");
@@ -112,34 +132,38 @@ const Dashboard = () => {
             const allDespesas: Despesa[] = despesasResponse.data || [];
             const allVeiculos: Veiculo[] = veiculosResponse.data || [];
 
-            // Popula as opções de meses
+             // Popula as opções de meses
             const dates = [...allServicos.map(s => s.data), ...allDespesas.map(d => d.data)];
             const validDates = dates.filter((d): d is string => typeof d === 'string' && d.length > 0);
-            const uniqueMonths = [...new Set(validDates.map(d => {
-              try {
-                  return format(parseISO(d), 'yyyy-MM');
-              } catch (e) {
-                  console.error("Error parsing date for month options:", d, e);
-                  return null; // Return null if parsing fails
-              }
-          }))].filter((m): m is string => m !== null); // Filter out any nulls resulting from errors
-          
-          const options = uniqueMonths.sort().reverse().map(monthStr => {
-               try {
-                   return {
-                       value: monthStr,
-                       label: format(parseISO(`${monthStr}-01`), "MMMM 'de' yyyy", { locale: ptBR })
-                   };
-               } catch(e) {
-                   console.error("Error formatting month label:", monthStr, e);
-                   return { value: monthStr, label: 'Erro Data' }; // Provide a fallback label
-               }
-          });
-          setMonthOptions(options);
+             const uniqueMonths = [...new Set(validDates.map(d => {
+                try {
+                    return format(parseISO(d), 'yyyy-MM');
+                } catch (e) {
+                    console.error("Error parsing date for month options:", d, e);
+                    return null;
+                }
+            }))].filter((m): m is string => m !== null);
+
+            const options = uniqueMonths.sort().reverse().map(monthStr => {
+                 try {
+                     return {
+                         value: monthStr,
+                         label: format(parseISO(`${monthStr}-01`), "MMMM 'de' yyyy", { locale: ptBR })
+                     };
+                 } catch(e) {
+                     console.error("Error formatting month label:", monthStr, e);
+                     return { value: monthStr, label: 'Erro Data' };
+                 }
+            });
+            setMonthOptions(options);
+
+            // Popula as opções de veículos
+            const vehicleOpts = allVeiculos.map(v => ({ value: v.placa, label: v.placa }));
+            setVehicleOptions(vehicleOpts);
 
             // Filtra por mês
-            const servicos = selectedMonth === 'all' 
-                ? allServicos 
+            const servicos = selectedMonth === 'all'
+                ? allServicos
                 : allServicos.filter(s => s.data && s.data.startsWith(selectedMonth));
 
             const despesas = selectedMonth === 'all'
@@ -156,7 +180,7 @@ const Dashboard = () => {
                 .reduce((acc, s) => acc + s.valor_bruto, 0);
 
             const despesasTotal = despesas.reduce((acc, d) => acc + d.valor_total, 0);
-            
+
             setSummary({
                 totalRecebido,
                 totalAReceber,
@@ -165,11 +189,11 @@ const Dashboard = () => {
             });
 
             // Resumo por veículo
-            const resumoVeiculos = allVeiculos.map(veiculo => {
+             const resumoVeiculos = allVeiculos.map(veiculo => {
                 const totalAReceberVeiculo = servicos
                     .filter(s => s.placa_veiculo === veiculo.placa && (s.status === 'Pendente' || s.status === 'Vencido'))
                     .reduce((acc, s) => acc + s.valor_bruto, 0);
-                
+
                 const despesasVeiculo = despesas
                     .filter(d => d.placa_veiculo === veiculo.placa)
                     .reduce((acc, d) => acc + d.valor_total, 0);
@@ -181,40 +205,48 @@ const Dashboard = () => {
                 };
             }).filter(v => v.totalAReceber > 0 || v.despesas > 0);
             setResumoPorVeiculo(resumoVeiculos);
-            
+
             // Filtra serviços pendentes por mês E por veículo selecionado
+            const today = new Date();
             const pendentesGeral = allServicos
-                .filter(s => s.status === 'Pendente' || s.status === 'Vencido');
-                
+                .map(s => ({ ...s, status: getStatusServico(s, today) }))
+                .filter(s => s.status === 'Pendente' || s.status === 'Vencido' || s.status === 'a Vencer');
+
             const pendentesFiltrados = pendentesGeral
-                .filter(s => 
+                .filter(s =>
                     (selectedMonth === 'all' || (s.data && s.data.startsWith(selectedMonth))) &&
                     (selectedVehicle === 'all' || s.placa_veiculo === selectedVehicle)
                 )
-                .sort((a, b) => new Date(a.vencimento).getTime() - new Date(b.vencimento).getTime());
+                .sort((a, b) => {
+                     const dateA = parseDateStringAsLocal(a.vencimento);
+                    const dateB = parseDateStringAsLocal(b.vencimento);
+                    if (!dateA) return 1;
+                    if (!dateB) return -1;
+                    return dateA.getTime() - dateB.getTime();
+                });
+
 
             setServicosPendentes(pendentesFiltrados);
 
-            // Previsão de recebimento baseada nos pendentes GERAIS (sem filtro de mês/veículo)
-            const today = new Date();
+             // Previsão de recebimento
             const periodos = [
                 { label: 'Próximos 7 dias', start: today, end: addDays(today, 7) },
                 { label: 'Próximos 15 dias', start: addDays(today, 8), end: addDays(today, 15) },
                 { label: 'Próximos 30 dias', start: addDays(today, 16), end: addDays(today, 30) },
             ];
-            
+
             const previsao = periodos.map(p => {
                 const valor = pendentesGeral
                     .filter(s => {
                         const vencimentoDate = parseDateStringAsLocal(s.vencimento);
-                        return vencimentoDate && isWithinInterval(vencimentoDate, { start: p.start, end: p.end });
+                        return vencimentoDate && (s.status === 'a Vencer' || s.status === 'Pendente') && isWithinInterval(vencimentoDate, { start: p.start, end: p.end });
                     })
                     .reduce((acc, s) => acc + s.valor_bruto, 0);
                 return { periodo: p.label, valor };
             });
             setPrevisaoRecebimento(previsao);
 
-            // Previsão por Veículo baseada nos pendentes GERAIS
+            // Previsão por Veículo
             const veiculosComPendencias = [...new Set(pendentesGeral.map(s => s.placa_veiculo))];
             const previsaoVeiculos: Record<string, {periodo: string, valor: number}[]> = {};
 
@@ -224,7 +256,7 @@ const Dashboard = () => {
                     const valor = servicosDoVeiculo
                         .filter(s => {
                             const vencimentoDate = parseDateStringAsLocal(s.vencimento);
-                            return vencimentoDate && isWithinInterval(vencimentoDate, { start: p.start, end: p.end });
+                            return vencimentoDate && (s.status === 'a Vencer' || s.status === 'Pendente') && isWithinInterval(vencimentoDate, { start: p.start, end: p.end });
                         })
                         .reduce((acc, s) => acc + s.valor_bruto, 0);
                     return { periodo: p.label, valor };
@@ -232,21 +264,24 @@ const Dashboard = () => {
             });
             setPrevisaoPorVeiculo(previsaoVeiculos);
 
-
             setLoading(false);
         };
 
         fetchDataAndCalculate();
-    }, [selectedMonth, selectedVehicle]); // Adiciona selectedVehicle às dependências
+    }, [selectedMonth, selectedVehicle]);
+
 
     const summaryLabel = selectedMonth === 'all' ? '(Geral)' : `(${format(parseISO(`${selectedMonth}-01`), "MMM/yy", { locale: ptBR })})`;
+
+    const handlePrint = () => { window.print(); };
 
     if (loading) return <p>A carregar dashboard...</p>
     if (error) return <p className="text-destructive">{error}</p>
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
+    <div className="space-y-6 printable-container">
+      {/* ... (Header e Cards de Resumo/Previsão permanecem iguais) ... */}
+       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between print-hide">
         <div>
             <h1 className="text-2xl font-bold">Dashboard - Sistema de Gestão Munck</h1>
             <p className="text-muted-foreground">Resumo financeiro e operacional</p>
@@ -267,159 +302,179 @@ const Dashboard = () => {
             </Select>
         </div>
       </div>
-
-      <div className="grid gap-6 md:grid-cols-2">
+       <div className="grid gap-6 md:grid-cols-2 print-hide">
         <Card>
-          <CardHeader>
-            <CardTitle className="text-lg flex items-center gap-2">
-              <Calculator className="h-5 w-5" />
-              Resumo Financeiro
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableBody>
-                  <TableRow>
-                    <TableCell className="font-medium">Total Recebido {summaryLabel}</TableCell>
-                    <TableCell className="text-right">{formatCurrency(summary.totalRecebido)}</TableCell>
-                  </TableRow>
-                  <TableRow>
-                    <TableCell className="font-medium">Total a Receber {summaryLabel}</TableCell>
-                    <TableCell className="text-right">{formatCurrency(summary.totalAReceber)}</TableCell>
-                  </TableRow>
-                  <TableRow>
-                    <TableCell className="font-medium">Despesas {summaryLabel}</TableCell>
-                    <TableCell className="text-right text-destructive">{formatCurrency(summary.despesas)}</TableCell>
-                  </TableRow>
-                  <TableRow>
-                    <TableCell className="font-medium">Valor Líquido {summaryLabel}</TableCell>
-                    <TableCell className="text-right font-bold">{formatCurrency(summary.valorLiquido)}</TableCell>
-                  </TableRow>
-              </TableBody>
-            </Table>
-            <Accordion type="single" collapsible className="w-full mt-4">
-              <AccordionItem value="item-1">
-                <AccordionTrigger>Detalhes por Veículo {summaryLabel}</AccordionTrigger>
-                <AccordionContent>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Veículo</TableHead>
-                        <TableHead className="text-right">A Receber</TableHead>
-                        <TableHead className="text-right">Despesas</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {resumoPorVeiculo.map(veiculo => (
-                        <TableRow key={veiculo.placa}>
-                          <TableCell className="font-medium">{veiculo.placa}</TableCell>
-                          <TableCell className="text-right">{formatCurrency(veiculo.totalAReceber)}</TableCell>
-                          <TableCell className="text-right text-destructive">{formatCurrency(veiculo.despesas)}</TableCell>
+            <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2">
+                <Calculator className="h-5 w-5" />
+                Resumo Financeiro
+                </CardTitle>
+            </CardHeader>
+            <CardContent>
+                <Table>
+                <TableBody>
+                    <TableRow>
+                        <TableCell className="font-medium">Total Recebido {summaryLabel}</TableCell>
+                        <TableCell className="text-right">{formatCurrency(summary.totalRecebido)}</TableCell>
+                    </TableRow>
+                    <TableRow>
+                        <TableCell className="font-medium">Total a Receber {summaryLabel}</TableCell>
+                        <TableCell className="text-right">{formatCurrency(summary.totalAReceber)}</TableCell>
+                    </TableRow>
+                    <TableRow>
+                        <TableCell className="font-medium">Despesas {summaryLabel}</TableCell>
+                        <TableCell className="text-right text-destructive">{formatCurrency(summary.despesas)}</TableCell>
+                    </TableRow>
+                    <TableRow>
+                        <TableCell className="font-medium">Valor Líquido {summaryLabel}</TableCell>
+                        <TableCell className="text-right font-bold">{formatCurrency(summary.valorLiquido)}</TableCell>
+                    </TableRow>
+                </TableBody>
+                </Table>
+                 <Accordion type="single" collapsible className="w-full mt-4">
+                <AccordionItem value="item-1">
+                    <AccordionTrigger>Detalhes por Veículo {summaryLabel}</AccordionTrigger>
+                    <AccordionContent>
+                    <Table>
+                        <TableHeader>
+                        <TableRow>
+                            <TableHead>Veículo</TableHead>
+                            <TableHead className="text-right">A Receber</TableHead>
+                            <TableHead className="text-right">Despesas</TableHead>
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </AccordionContent>
-              </AccordionItem>
-            </Accordion>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg flex items-center gap-2">
-              <TrendingUp className="h-5 w-5" />
-              Previsão de Recebimento (Geral)
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableBody>
-                {previsaoRecebimento.map((item, index) => (
-                  <TableRow key={index}>
-                    <TableCell className="font-medium">{item.periodo}</TableCell>
-                    <TableCell className="text-right">{formatCurrency(item.valor)}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-            <Accordion type="single" collapsible className="w-full mt-4">
-              <AccordionItem value="item-1">
-                <AccordionTrigger>Detalhes por Veículo</AccordionTrigger>
-                <AccordionContent>
-                  {Object.entries(previsaoPorVeiculo).map(([placa, previsao]) => (
-                    <div key={placa} className="mb-4">
-                      <h4 className="font-semibold mb-2">{placa}</h4>
-                      <Table>
+                        </TableHeader>
                         <TableBody>
-                          {previsao.map((item, index) => (
-                            <TableRow key={index}>
-                              <TableCell className="font-medium">{item.periodo}</TableCell>
-                              <TableCell className="text-right">{formatCurrency(item.valor)}</TableCell>
+                        {resumoPorVeiculo.map(veiculo => (
+                            <TableRow key={veiculo.placa}>
+                            <TableCell className="font-medium">{veiculo.placa}</TableCell>
+                            <TableCell className="text-right">{formatCurrency(veiculo.totalAReceber)}</TableCell>
+                            <TableCell className="text-right text-destructive">{formatCurrency(veiculo.despesas)}</TableCell>
                             </TableRow>
-                          ))}
+                        ))}
                         </TableBody>
-                      </Table>
-                    </div>
-                  ))}
-                </AccordionContent>
-              </AccordionItem>
-            </Accordion>
-          </CardContent>
+                    </Table>
+                    </AccordionContent>
+                </AccordionItem>
+                </Accordion>
+            </CardContent>
+        </Card>
+        <Card>
+             <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2">
+                <TrendingUp className="h-5 w-5" />
+                Previsão de Recebimento (Geral)
+                </CardTitle>
+            </CardHeader>
+            <CardContent>
+                <Table>
+                <TableBody>
+                    {previsaoRecebimento.map((item, index) => (
+                    <TableRow key={index}>
+                        <TableCell className="font-medium">{item.periodo}</TableCell>
+                        <TableCell className="text-right">{formatCurrency(item.valor)}</TableCell>
+                    </TableRow>
+                    ))}
+                </TableBody>
+                </Table>
+                <Accordion type="single" collapsible className="w-full mt-4">
+                <AccordionItem value="item-1">
+                    <AccordionTrigger>Detalhes por Veículo</AccordionTrigger>
+                    <AccordionContent>
+                    {Object.entries(previsaoPorVeiculo).map(([placa, previsao]) => (
+                        <div key={placa} className="mb-4">
+                        <h4 className="font-semibold mb-2">{placa}</h4>
+                        <Table>
+                            <TableBody>
+                            {previsao.map((item, index) => (
+                                <TableRow key={index}>
+                                <TableCell className="font-medium">{item.periodo}</TableCell>
+                                <TableCell className="text-right">{formatCurrency(item.valor)}</TableCell>
+                                </TableRow>
+                            ))}
+                            </TableBody>
+                        </Table>
+                        </div>
+                    ))}
+                    </AccordionContent>
+                </AccordionItem>
+                </Accordion>
+            </CardContent>
         </Card>
       </div>
 
-      <Card>
-        <CardHeader>
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
+      <Card id="servicos-pendentes-card">
+        {/* ... (CardHeader com filtros e botão de impressão - mantém-se igual) ... */}
+         <CardHeader>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between print-hide">
                 <CardTitle className="text-lg flex items-center gap-2 mb-2 sm:mb-0">
                     <FileText className="h-5 w-5" />
                     Serviços Pendentes de Pagamento {summaryLabel}
                 </CardTitle>
-                <Select value={selectedVehicle} onValueChange={setSelectedVehicle}>
-                    <SelectTrigger className="w-full sm:w-[220px]">
-                        <SelectValue placeholder="Filtrar por veículo" />
-                    </SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value="all">Todos os Veículos</SelectItem>
-                        {vehicleOptions.map(option => (
-                            <SelectItem key={option.value} value={option.value}>
-                                {option.label}
-                            </SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
+                <div className="flex items-center gap-2">
+                    <Select value={selectedVehicle} onValueChange={setSelectedVehicle}>
+                        <SelectTrigger className="w-full sm:w-[220px]">
+                            <SelectValue placeholder="Filtrar por veículo" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">Todos os Veículos</SelectItem>
+                            {vehicleOptions.map(option => (
+                                <SelectItem key={option.value} value={option.value}>
+                                    {option.label}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                    <Button variant="outline" size="icon" onClick={handlePrint} title="Imprimir Lista">
+                        <Printer className="h-4 w-4" />
+                    </Button>
+                </div>
             </div>
         </CardHeader>
         <CardContent>
           <Table>
             <TableHeader>
               <TableRow>
+                 {/* Adicionar TableHead para OS e NF */}
+                <TableHead>OS</TableHead>
+                <TableHead>NF</TableHead>
                 <TableHead>Cliente</TableHead>
                 <TableHead>Veículo</TableHead>
                 <TableHead>Valor</TableHead>
                 <TableHead>Vencimento</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead>Dias Venc.</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {servicosPendentes.map((servico) => {
                 const vencimentoDate = parseDateStringAsLocal(servico.vencimento);
+                const today = new Date();
+                const diasVencidos = servico.status === 'Vencido' && vencimentoDate
+                  ? differenceInDays(today, vencimentoDate)
+                  : null;
+
                 return (
                     <TableRow key={servico.id}>
-                    <TableCell>{servico.cliente}</TableCell>
-                    <TableCell>{servico.placa_veiculo}</TableCell>
-                    <TableCell>{formatCurrency(servico.valor_bruto)}</TableCell>
-                    <TableCell>
-                        {vencimentoDate ? format(vencimentoDate, 'dd/MM/yyyy') : 'N/A'}
-                    </TableCell>
-                    <TableCell>{servico.status}</TableCell>
+                         {/* Adicionar TableCell para OS e NF */}
+                        <TableCell>{servico.os || '-'}</TableCell>
+                        <TableCell>{servico.n_fiscal || '-'}</TableCell>
+                        <TableCell>{servico.cliente}</TableCell>
+                        <TableCell>{servico.placa_veiculo}</TableCell>
+                        <TableCell>{formatCurrency(servico.valor_bruto)}</TableCell>
+                        <TableCell>
+                            {vencimentoDate ? format(vencimentoDate, 'dd/MM/yyyy') : 'N/A'}
+                        </TableCell>
+                        <TableCell>{servico.status}</TableCell>
+                        <TableCell className={cn(diasVencidos !== null && diasVencidos > 0 ? 'text-destructive font-medium' : '')}>
+                            {diasVencidos !== null && diasVencidos > 0 ? diasVencidos : '-'}
+                        </TableCell>
                     </TableRow>
                 );
               })}
               {servicosPendentes.length === 0 && (
                 <TableRow>
-                    <TableCell colSpan={5} className="text-center text-muted-foreground">
+                     {/* Atualizar colSpan para 8 */}
+                    <TableCell colSpan={8} className="text-center text-muted-foreground">
                         Nenhum serviço pendente encontrado para os filtros selecionados.
                     </TableCell>
                 </TableRow>

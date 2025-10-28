@@ -109,3 +109,63 @@ All colors MUST be HSL.
     @apply bg-background text-foreground;
   }
 }
+
+
+@layer utilities {
+  /* Estilos para impressão */
+  @media print {
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: white; /* Garante fundo branco na impressão */
+    }
+
+    /* Esconde a sidebar e outros elementos indesejados */
+    .print-hide,
+    nav, /* Esconde a tag nav se a sidebar for assim */
+    header, /* Esconde header, se existir fora do card */
+    footer /* Esconde footer, se existir */
+     {
+      display: none !important;
+    }
+
+    /* Garante que o container principal não restrinja a largura na impressão */
+    .printable-container {
+      max-width: none !important;
+      margin: 0 !important;
+      padding: 1rem !important; /* Adiciona uma pequena margem de impressão */
+    }
+
+    /* Faz com que APENAS o card de serviços pendentes seja visível */
+    .printable-container > *:not(#servicos-pendentes-card) {
+      display: none !important;
+    }
+
+    /* Garante que o card alvo ocupe a página e remova sombras/bordas desnecessárias */
+    #servicos-pendentes-card {
+      display: block !important;
+      box-shadow: none !important;
+      border: none !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      width: 100% !important;
+      max-width: none !important;
+      page-break-inside: avoid; /* Tenta evitar quebrar o card entre páginas */
+    }
+
+     /* Ajustes finos na tabela para impressão */
+     #servicos-pendentes-card table {
+        width: 100%;
+        border-collapse: collapse;
+     }
+     #servicos-pendentes-card th,
+     #servicos-pendentes-card td {
+        border: 1px solid #ccc;
+        padding: 4px 8px;
+        font-size: 10pt; /* Tamanho menor para caber mais */
+     }
+     #servicos-pendentes-card th {
+        background-color: #f2f2f2; /* Fundo leve para cabeçalho */
+     }
+  }
+}
