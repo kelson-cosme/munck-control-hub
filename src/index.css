@@ -114,10 +114,17 @@ All colors MUST be HSL.
 @layer utilities {
   /* Estilos para impressão */
   @media print {
-    body {
-      margin: 0;
-      padding: 0;
-      background-color: white; /* Garante fundo branco na impressão */
+    /* * Reseta o body e o #root para garantir largura total.
+      * O #root é o principal problema, pois tem max-width e margin: auto.
+    */
+    body,
+    #root {
+      margin: 0 !important;
+      padding: 0 !important;
+      max-width: none !important;
+      width: 100% !important;
+      background-color: white !important; /* Garante fundo branco */
+      text-align: left !important; /* Reseta o text-align: center do #root */
     }
 
     /* Esconde a sidebar e outros elementos indesejados */
@@ -128,12 +135,24 @@ All colors MUST be HSL.
      {
       display: none !important;
     }
+    
+    /* * Remove margens e paddings do layout principal (AppLayout.tsx)
+      * e garante que o conteúdo não seja cortado.
+    */
+    main {
+        margin: 0 !important;
+        padding: 0 !important;
+        overflow: visible !important; 
+    }
 
-    /* Garante que o container principal não restrinja a largura na impressão */
+    /* Garante que o container principal ocupe a largura total */
     .printable-container {
-      max-width: none !important;
+      max-width: 100% !important;
+      width: 100% !important;
       margin: 0 !important;
-      padding: 1rem !important; /* Adiciona uma pequena margem de impressão */
+      padding: 0.5cm !important; /* Adiciona uma pequena margem de impressão */
+      box-shadow: none !important;
+      border: none !important;
     }
 
     /* Faz com que APENAS o card de serviços pendentes seja visível */
@@ -141,7 +160,7 @@ All colors MUST be HSL.
       display: none !important;
     }
 
-    /* Garante que o card alvo ocupe a página e remova sombras/bordas desnecessárias */
+    /* Garante que o card alvo ocupe a página */
     #servicos-pendentes-card {
       display: block !important;
       box-shadow: none !important;
@@ -149,23 +168,28 @@ All colors MUST be HSL.
       margin: 0 !important;
       padding: 0 !important;
       width: 100% !important;
-      max-width: none !important;
+      max-width: 100% !important;
       page-break-inside: avoid; /* Tenta evitar quebrar o card entre páginas */
+    }
+    
+    /* Remove padding do CardContent para a tabela usar 100% */
+    #servicos-pendentes-card > div[class*="CardContent"] {
+        padding: 0 !important;
     }
 
      /* Ajustes finos na tabela para impressão */
      #servicos-pendentes-card table {
-        width: 100%;
+        width: 100% !important;
         border-collapse: collapse;
      }
      #servicos-pendentes-card th,
      #servicos-pendentes-card td {
-        border: 1px solid #ccc;
-        padding: 4px 8px;
-        font-size: 10pt; /* Tamanho menor para caber mais */
+        border: 1px solid #ccc !important; /* Adiciona !important para garantir */
+        padding: 4px 8px !important; /* Adiciona !important para garantir */
+        font-size: 9pt !important; /* Tamanho menor para caber mais colunas */
      }
      #servicos-pendentes-card th {
-        background-color: #f2f2f2; /* Fundo leve para cabeçalho */
+        background-color: #f2f2f2 !important; /* Adiciona !important */
      }
   }
 }
